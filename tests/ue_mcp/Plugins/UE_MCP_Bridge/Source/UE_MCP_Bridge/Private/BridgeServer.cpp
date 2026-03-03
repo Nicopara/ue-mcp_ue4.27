@@ -1,0 +1,562 @@
+#include "BridgeServer.h"
+#include "Dom/JsonObject.h"
+#include "Dom/JsonValue.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
+#include "HAL/PlatformProcess.h"
+#include "Misc/DateTime.h"
+#include "Misc/Timespan.h"
+#include "Handlers/EditorHandlers.h"
+#include "Handlers/AssetHandlers.h"
+#include "Handlers/BlueprintHandlers.h"
+#include "Handlers/LevelHandlers.h"
+#include "Handlers/ReflectionHandlers.h"
+
+// Platform-specific socket includes
+#if PLATFORM_WINDOWS
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include "Windows/HideWindowsPlatformTypes.h"
+#pragma comment(lib, "ws2_32.lib")
+#elif PLATFORM_LINUX || PLATFORM_MAC
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <sys/select.h>
+#endif
+
+#include "Misc/Base64.h"
+#include "Hashing/SHA.h"
+
+FMCPBridgeServer::FMCPBridgeServer(int32 Port)
+	: ServerPort(Port)
+	, ServerThread(nullptr)
+	, bShouldStop(false)
+	, bIsRunning(false)
+	, ServerSocket(nullptr)
+{
+	// Register core handlers
+	FEditorHandlers::RegisterHandlers(HandlerRegistry);
+	FAssetHandlers::RegisterHandlers(HandlerRegistry);
+	FBlueprintHandlers::RegisterHandlers(HandlerRegistry);
+	FLevelHandlers::RegisterHandlers(HandlerRegistry);
+	FReflectionHandlers::RegisterHandlers(HandlerRegistry);
+}
+
+FMCPBridgeServer::~FMCPBridgeServer()
+{
+	Stop();
+}
+
+bool FMCPBridgeServer::Start()
+{
+	if (bIsRunning)
+	{
+		return false;
+	}
+
+	bShouldStop = false;
+	ServerThread = FRunnableThread::Create(this, TEXT("MCPBridgeServer"), 0, TPri_Normal);
+	return ServerThread != nullptr;
+}
+
+void FMCPBridgeServer::Stop()
+{
+	if (!bIsRunning)
+	{
+		return;
+	}
+
+	bShouldStop = true;
+
+	if (ServerThread)
+	{
+		ServerThread->WaitForCompletion();
+		delete ServerThread;
+		ServerThread = nullptr;
+	}
+
+	bIsRunning = false;
+}
+
+bool FMCPBridgeServer::Init()
+{
+	bIsRunning = true;
+	return true;
+}
+
+uint32 FMCPBridgeServer::Run()
+{
+	UE_LOG(LogTemp, Log, TEXT("[UE-MCP] Bridge server thread started on port %d"), ServerPort);
+	
+	// Initialize platform sockets
+#if PLATFORM_WINDOWS
+	WSADATA WsaData;
+	if (WSAStartup(MAKEWORD(2, 2), &WsaData) != 0)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[UE-MCP] Failed to initialize Winsock"));
+		return 1;
+	}
+#endif
+
+	// Create server socket
+	int32 ServerSocketFD = socket(AF_INET, SOCK_STREAM, 0);
+	if (ServerSocketFD < 0)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[UE-MCP] Failed to create socket"));
+#if PLATFORM_WINDOWS
+		WSACleanup();
+#endif
+		return 1;
+	}
+
+	// Set socket options
+	int32 ReuseAddr = 1;
+	setsockopt(ServerSocketFD, SOL_SOCKET, SO_REUSEADDR, (char*)&ReuseAddr, sizeof(ReuseAddr));
+
+	// Bind socket
+	sockaddr_in ServerAddr;
+	FMemory::Memset(&ServerAddr, 0, sizeof(ServerAddr));
+	ServerAddr.sin_family = AF_INET;
+	ServerAddr.sin_addr.s_addr = INADDR_ANY;
+	ServerAddr.sin_port = htons(ServerPort);
+
+	if (bind(ServerSocketFD, (sockaddr*)&ServerAddr, sizeof(ServerAddr)) < 0)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[UE-MCP] Failed to bind socket to port %d"), ServerPort);
+#if PLATFORM_WINDOWS
+		closesocket(ServerSocketFD);
+		WSACleanup();
+#else
+		close(ServerSocketFD);
+#endif
+		return 1;
+	}
+
+	// Listen
+	if (listen(ServerSocketFD, 5) < 0)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[UE-MCP] Failed to listen on socket"));
+#if PLATFORM_WINDOWS
+		closesocket(ServerSocketFD);
+		WSACleanup();
+#else
+		close(ServerSocketFD);
+#endif
+		return 1;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[UE-MCP] Bridge listening on ws://localhost:%d"), ServerPort);
+
+	// Accept connections
+	while (!bShouldStop)
+	{
+		fd_set ReadSet;
+		FD_ZERO(&ReadSet);
+		FD_SET(ServerSocketFD, &ReadSet);
+
+		timeval Timeout;
+		Timeout.tv_sec = 1;
+		Timeout.tv_usec = 0;
+
+		int32 SelectResult = select(ServerSocketFD + 1, &ReadSet, nullptr, nullptr, &Timeout);
+#if PLATFORM_WINDOWS
+		if (SelectResult > 0 && WSAFDIsSet(ServerSocketFD, &ReadSet))
+#else
+		if (SelectResult > 0 && FD_ISSET(ServerSocketFD, &ReadSet))
+#endif
+		{
+			sockaddr_in ClientAddr;
+			socklen_t ClientAddrLen = sizeof(ClientAddr);
+#if PLATFORM_WINDOWS
+			SOCKET ClientSocketFD = accept(ServerSocketFD, (sockaddr*)&ClientAddr, &ClientAddrLen);
+			if (ClientSocketFD != INVALID_SOCKET)
+#else
+			int32 ClientSocketFD = accept(ServerSocketFD, (sockaddr*)&ClientAddr, &ClientAddrLen);
+			if (ClientSocketFD >= 0)
+#endif
+			{
+				UE_LOG(LogTemp, Log, TEXT("[UE-MCP] Client connected from %s:%d"), 
+					ANSI_TO_TCHAR(inet_ntoa(ClientAddr.sin_addr)), ntohs(ClientAddr.sin_port));
+				
+				// Handle WebSocket connection
+				HandleWebSocketConnection(ClientSocketFD);
+			}
+		}
+	}
+
+	// Cleanup
+#if PLATFORM_WINDOWS
+	closesocket(ServerSocketFD);
+	WSACleanup();
+#else
+	close(ServerSocketFD);
+#endif
+
+	return 0;
+}
+
+void FMCPBridgeServer::StopRunnable()
+{
+	bShouldStop = true;
+}
+
+void FMCPBridgeServer::Exit()
+{
+	bIsRunning = false;
+}
+
+TSharedPtr<FJsonObject> FMCPBridgeServer::ParseJsonRpcRequest(const FString& Message)
+{
+	TSharedPtr<FJsonObject> JsonObject;
+	TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Message);
+	
+	if (FJsonSerializer::Deserialize(Reader, JsonObject) && JsonObject.IsValid())
+	{
+		return JsonObject;
+	}
+
+	return nullptr;
+}
+
+FString FMCPBridgeServer::CreateJsonRpcResponse(const TSharedPtr<FJsonObject>& Request, const TSharedPtr<FJsonValue>& Result)
+{
+	TSharedPtr<FJsonObject> Response = MakeShared<FJsonObject>();
+	Response->SetStringField(TEXT("jsonrpc"), TEXT("2.0"));
+	
+	if (Request.IsValid() && Request->HasField(TEXT("id")))
+	{
+		Response->SetField(TEXT("id"), Request->TryGetField(TEXT("id")));
+	}
+	
+	Response->SetField(TEXT("result"), Result);
+
+	FString OutputString;
+	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
+	FJsonSerializer::Serialize(Response.ToSharedRef(), Writer);
+	return OutputString;
+}
+
+FString FMCPBridgeServer::CreateJsonRpcError(const TSharedPtr<FJsonObject>& Request, int32 ErrorCode, const FString& ErrorMessage)
+{
+	TSharedPtr<FJsonObject> Response = MakeShared<FJsonObject>();
+	Response->SetStringField(TEXT("jsonrpc"), TEXT("2.0"));
+	
+	if (Request.IsValid() && Request->HasField(TEXT("id")))
+	{
+		Response->SetField(TEXT("id"), Request->TryGetField(TEXT("id")));
+	}
+	else
+	{
+		Response->SetField(TEXT("id"), MakeShared<FJsonValueNull>());
+	}
+
+	TSharedPtr<FJsonObject> ErrorObject = MakeShared<FJsonObject>();
+	ErrorObject->SetNumberField(TEXT("code"), ErrorCode);
+	ErrorObject->SetStringField(TEXT("message"), ErrorMessage);
+	Response->SetObjectField(TEXT("error"), ErrorObject);
+
+	FString OutputString;
+	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
+	FJsonSerializer::Serialize(Response.ToSharedRef(), Writer);
+	return OutputString;
+}
+
+FString FMCPBridgeServer::ProcessMessage(const FString& Message)
+{
+	TSharedPtr<FJsonObject> Request = ParseJsonRpcRequest(Message);
+	if (!Request.IsValid())
+	{
+		return CreateJsonRpcError(nullptr, -32700, TEXT("Parse error"));
+	}
+
+	FString Method;
+	if (!Request->TryGetStringField(TEXT("method"), Method))
+	{
+		return CreateJsonRpcError(Request, -32600, TEXT("Invalid Request"));
+	}
+
+	TSharedPtr<FJsonObject> Params;
+	if (Request->HasField(TEXT("params")))
+	{
+		const TSharedPtr<FJsonValue>* ParamsValue = nullptr;
+		if (Request->TryGetField(TEXT("params"), ParamsValue) && ParamsValue->IsValid())
+		{
+			if ((*ParamsValue)->Type == EJson::Object)
+			{
+				Params = (*ParamsValue)->AsObject();
+			}
+			else
+			{
+				Params = MakeShared<FJsonObject>();
+			}
+		}
+	}
+	else
+	{
+		Params = MakeShared<FJsonObject>();
+	}
+
+	// Execute handler on game thread
+	FMCPHandlerRegistry::FHandlerFunction Handler = [this, Method](const TSharedPtr<FJsonObject>& HandlerParams) -> TSharedPtr<FJsonValue>
+	{
+		return HandlerRegistry.ExecuteHandler(Method, HandlerParams);
+	};
+
+	TSharedPtr<FJsonValue> Result = GameThreadExecutor.ExecuteOnGameThread(Handler, Params);
+
+	if (Result.IsValid())
+	{
+		return CreateJsonRpcResponse(Request, Result);
+	}
+	else
+	{
+		return CreateJsonRpcError(Request, -32601, FString::Printf(TEXT("Unknown method: %s"), *Method));
+	}
+}
+
+#if PLATFORM_WINDOWS
+void FMCPBridgeServer::HandleWebSocketConnection(SOCKET ClientSocketFD)
+#else
+void FMCPBridgeServer::HandleWebSocketConnection(int32 ClientSocketFD)
+#endif
+{
+	// Perform WebSocket handshake
+	FString Response = PerformWebSocketHandshake(ClientSocketFD);
+	if (Response.IsEmpty())
+	{
+#if PLATFORM_WINDOWS
+		closesocket(ClientSocketFD);
+#else
+		close(ClientSocketFD);
+#endif
+		return;
+	}
+
+	// Send handshake response
+	send(ClientSocketFD, TCHAR_TO_ANSI(*Response), Response.Len(), 0);
+
+	// Process WebSocket messages
+	ProcessWebSocketMessages(ClientSocketFD);
+
+#if PLATFORM_WINDOWS
+	closesocket(ClientSocketFD);
+#else
+	close(ClientSocketFD);
+#endif
+}
+
+#if PLATFORM_WINDOWS
+FString FMCPBridgeServer::PerformWebSocketHandshake(SOCKET ClientSocketFD)
+#else
+FString FMCPBridgeServer::PerformWebSocketHandshake(int32 ClientSocketFD)
+#endif
+{
+	FString Request = ReadHttpRequest(ClientSocketFD);
+	if (Request.IsEmpty())
+	{
+		return TEXT("");
+	}
+
+	// Extract WebSocket-Key from request
+	FString WebSocketKey;
+	int32 KeyStart = Request.Find(TEXT("Sec-WebSocket-Key: "));
+	if (KeyStart != INDEX_NONE)
+	{
+		int32 KeyEnd = Request.Find(TEXT("\r\n"), ESearchCase::CaseSensitive, ESearchDir::FromStart, KeyStart);
+		if (KeyEnd != INDEX_NONE)
+		{
+			WebSocketKey = Request.Mid(KeyStart + 19, KeyEnd - KeyStart - 19).TrimStartAndEnd();
+		}
+	}
+
+	if (WebSocketKey.IsEmpty())
+	{
+		return TEXT("");
+	}
+
+	// Create accept key
+	FString AcceptKey = CreateWebSocketAcceptKey(WebSocketKey);
+
+	// Build response
+	FString Response = TEXT("HTTP/1.1 101 Switching Protocols\r\n");
+	Response += TEXT("Upgrade: websocket\r\n");
+	Response += TEXT("Connection: Upgrade\r\n");
+	Response += FString::Printf(TEXT("Sec-WebSocket-Accept: %s\r\n"), *AcceptKey);
+	Response += TEXT("\r\n");
+
+	return Response;
+}
+
+#if PLATFORM_WINDOWS
+FString FMCPBridgeServer::ReadHttpRequest(SOCKET SocketFD)
+#else
+FString FMCPBridgeServer::ReadHttpRequest(int32 SocketFD)
+#endif
+{
+	TArray<uint8> Buffer;
+	Buffer.SetNum(4096);
+	
+	int32 BytesReceived = recv(SocketFD, (char*)Buffer.GetData(), Buffer.Num(), 0);
+	if (BytesReceived <= 0)
+	{
+		return TEXT("");
+	}
+
+	Buffer.SetNum(BytesReceived);
+	return FString(ANSI_TO_TCHAR((char*)Buffer.GetData()));
+}
+
+FString FMCPBridgeServer::CreateWebSocketAcceptKey(const FString& ClientKey)
+{
+	// WebSocket accept key = base64(sha1(client_key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
+	FString MagicString = TEXT("258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+	FString Combined = ClientKey + MagicString;
+
+	// Compute SHA1 hash (20 bytes)
+	FTCHARToUTF8 UTF8String(*Combined);
+	uint8 HashBytes[20];
+	FSHA1::HashBuffer(UTF8String.Get(), UTF8String.Length(), HashBytes);
+
+	// Base64 encode
+	FString AcceptKey = FBase64::Encode(HashBytes, 20);
+	return AcceptKey;
+}
+
+#if PLATFORM_WINDOWS
+void FMCPBridgeServer::ProcessWebSocketMessages(SOCKET ClientSocketFD)
+#else
+void FMCPBridgeServer::ProcessWebSocketMessages(int32 ClientSocketFD)
+#endif
+{
+	TArray<uint8> Buffer;
+	Buffer.SetNum(4096);
+
+	while (!bShouldStop)
+	{
+		int32 BytesReceived = recv(ClientSocketFD, (char*)Buffer.GetData(), Buffer.Num(), 0);
+		if (BytesReceived <= 0)
+		{
+			break;
+		}
+
+		Buffer.SetNum(BytesReceived);
+		FString Message = ParseWebSocketFrame(Buffer);
+		
+		if (!Message.IsEmpty())
+		{
+			FString Response = ProcessMessage(Message);
+			TArray<uint8> ResponseFrame = CreateWebSocketFrame(Response);
+			send(ClientSocketFD, (char*)ResponseFrame.GetData(), ResponseFrame.Num(), 0);
+		}
+	}
+}
+
+TArray<uint8> FMCPBridgeServer::CreateWebSocketFrame(const FString& Message)
+{
+	// Simple WebSocket frame creation (text frame, no masking)
+	TArray<uint8> Frame;
+	
+	// Convert to UTF-8 first to get correct byte length
+	FTCHARToUTF8 UTF8String(*Message);
+	int32 MessageLen = UTF8String.Length();
+	
+	// Frame header
+	uint8 FirstByte = 0x81; // FIN + text frame
+	Frame.Add(FirstByte);
+
+	if (MessageLen < 126)
+	{
+		Frame.Add(MessageLen);
+	}
+	else if (MessageLen < 65536)
+	{
+		Frame.Add(126);
+		Frame.Add((MessageLen >> 8) & 0xFF);
+		Frame.Add(MessageLen & 0xFF);
+	}
+	else
+	{
+		Frame.Add(127);
+		for (int32 i = 7; i >= 0; --i)
+		{
+			Frame.Add((MessageLen >> (i * 8)) & 0xFF);
+		}
+	}
+
+	// Message payload (UTF-8 bytes)
+	Frame.Append((uint8*)UTF8String.Get(), MessageLen);
+
+	return Frame;
+}
+
+FString FMCPBridgeServer::ParseWebSocketFrame(const TArray<uint8>& Data)
+{
+	if (Data.Num() < 2)
+	{
+		return TEXT("");
+	}
+
+	uint8 FirstByte = Data[0];
+	uint8 SecondByte = Data[1];
+
+	bool bMasked = (SecondByte & 0x80) != 0;
+	int32 PayloadLen = SecondByte & 0x7F;
+
+	int32 HeaderLen = 2;
+	if (PayloadLen == 126)
+	{
+		if (Data.Num() < 4)
+		{
+			return TEXT("");
+		}
+		PayloadLen = (Data[2] << 8) | Data[3];
+		HeaderLen = 4;
+	}
+	else if (PayloadLen == 127)
+	{
+		if (Data.Num() < 10)
+		{
+			return TEXT("");
+		}
+		PayloadLen = 0;
+		for (int32 i = 0; i < 8; ++i)
+		{
+			PayloadLen = (PayloadLen << 8) | Data[2 + i];
+		}
+		HeaderLen = 10;
+	}
+
+	if (bMasked)
+	{
+		HeaderLen += 4; // Masking key
+	}
+
+	if (Data.Num() < HeaderLen + PayloadLen)
+	{
+		return TEXT("");
+	}
+
+	TArray<uint8> Payload;
+	Payload.Append(Data.GetData() + HeaderLen, PayloadLen);
+
+	if (bMasked)
+	{
+		// Unmask payload
+		uint8 MaskKey[4];
+		MaskKey[0] = Data[HeaderLen - 4];
+		MaskKey[1] = Data[HeaderLen - 3];
+		MaskKey[2] = Data[HeaderLen - 2];
+		MaskKey[3] = Data[HeaderLen - 1];
+		
+		for (int32 i = 0; i < Payload.Num(); ++i)
+		{
+			Payload[i] ^= MaskKey[i % 4];
+		}
+	}
+
+	FUTF8ToTCHAR UTF8ToTCHAR((char*)Payload.GetData(), Payload.Num());
+	return FString(UTF8ToTCHAR.Length(), UTF8ToTCHAR.Get());
+}

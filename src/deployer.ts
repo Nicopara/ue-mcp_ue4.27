@@ -11,6 +11,7 @@ const STARTUP_SCRIPT_LINE = "+StartupScripts=ue_mcp_bridge/startup_script.py";
 export interface DeployResult {
   pluginEnabled: boolean;
   bridgeDeployed: boolean;
+  cppPluginDeployed: boolean;
   startupConfigured: boolean;
   websocketsInstalled: boolean;
   error?: string;
@@ -20,6 +21,7 @@ export function deploy(context: ProjectContext): DeployResult {
   const result: DeployResult = {
     pluginEnabled: false,
     bridgeDeployed: false,
+    cppPluginDeployed: false,
     startupConfigured: false,
     websocketsInstalled: false,
   };
@@ -27,6 +29,7 @@ export function deploy(context: ProjectContext): DeployResult {
   try {
     result.pluginEnabled = ensurePythonPlugin(context.projectPath!);
     result.bridgeDeployed = deployBridgeFiles(context.contentDir!);
+    result.cppPluginDeployed = deployCppPlugin(context.projectPath!);
     result.startupConfigured = ensureStartupConfig(context.projectPath!);
     result.websocketsInstalled = ensureWebsockets(context.engineAssociation, context.projectPath!);
   } catch (e) {
@@ -40,7 +43,8 @@ export function deploySummary(r: DeployResult): string {
   if (r.error) return `Bridge deployment failed: ${r.error}`;
   const changes: string[] = [];
   if (r.pluginEnabled) changes.push("enabled PythonScriptPlugin");
-  if (r.bridgeDeployed) changes.push("deployed bridge plugin");
+  if (r.bridgeDeployed) changes.push("deployed Python bridge");
+  if (r.cppPluginDeployed) changes.push("deployed C++ plugin");
   if (r.startupConfigured) changes.push("configured auto-start");
   if (r.websocketsInstalled) changes.push("installed websockets");
   if (changes.length === 0) return "Bridge already configured";
@@ -109,6 +113,85 @@ function deployBridgeFiles(contentDir: string): boolean {
 
   copyRecursive(sourceDir, targetDir);
   return anyDeployed;
+}
+
+function deployCppPlugin(uprojectPath: string): boolean {
+  const projectDir = path.dirname(uprojectPath);
+  const pluginsDir = path.join(projectDir, "Plugins");
+  
+  const sourcePluginDir = path.resolve(
+    import.meta.dirname ?? path.dirname(new URL(import.meta.url).pathname),
+    "..",
+    "plugin",
+    "UE_MCP_Bridge",
+  );
+
+  if (!fs.existsSync(sourcePluginDir)) {
+    console.error(`[ue-mcp] C++ plugin source not found at ${sourcePluginDir}`);
+    return false;
+  }
+
+  const targetPluginDir = path.join(pluginsDir, "UE_MCP_Bridge");
+  let anyDeployed = false;
+
+  function copyRecursive(src: string, dest: string): void {
+    if (!fs.existsSync(dest)) {
+      fs.mkdirSync(dest, { recursive: true });
+    }
+    for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+      const srcPath = path.join(src, entry.name);
+      const destPath = path.join(dest, entry.name);
+
+      // Skip build artifacts
+      if (entry.name === "Binaries" || entry.name === "Intermediate" || entry.name === "Saved") {
+        continue;
+      }
+
+      if (entry.isDirectory()) {
+        copyRecursive(srcPath, destPath);
+      } else {
+        const srcBytes = fs.readFileSync(srcPath);
+        let shouldWrite = true;
+        if (fs.existsSync(destPath)) {
+          const destBytes = fs.readFileSync(destPath);
+          shouldWrite = !srcBytes.equals(destBytes);
+        }
+        if (shouldWrite) {
+          fs.writeFileSync(destPath, srcBytes);
+          anyDeployed = true;
+        }
+      }
+    }
+  }
+
+  copyRecursive(sourcePluginDir, targetPluginDir);
+  
+  // Ensure plugin is enabled in .uproject
+  ensureCppPluginEnabled(uprojectPath);
+  
+  return anyDeployed;
+}
+
+function ensureCppPluginEnabled(uprojectPath: string): boolean {
+  const raw = fs.readFileSync(uprojectPath, "utf-8");
+  const root = JSON.parse(raw);
+
+  if (!root.Plugins) root.Plugins = [];
+
+  const already = root.Plugins.some(
+    (p: { Name?: string }) =>
+      p.Name === "UE_MCP_Bridge",
+  );
+  if (already) return false;
+
+  root.Plugins.push({
+    Name: "UE_MCP_Bridge",
+    Enabled: true,
+    MarketplaceURL: "",
+    SupportedTargetPlatforms: [],
+  });
+  fs.writeFileSync(uprojectPath, JSON.stringify(root, null, "\t"));
+  return true;
 }
 
 function ensureStartupConfig(uprojectPath: string): boolean {

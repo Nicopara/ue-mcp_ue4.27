@@ -42,6 +42,12 @@
 		{
 			"Name": "SmartObjects",
 			"Enabled": true
+		},
+		{
+			"Name": "UE_MCP_Bridge",
+			"Enabled": true,
+			"MarketplaceURL": "",
+			"SupportedTargetPlatforms": []
 		}
 	]
 }
