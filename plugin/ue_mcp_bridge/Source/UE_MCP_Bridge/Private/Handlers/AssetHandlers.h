@@ -13,7 +13,12 @@ public:
 private:
 	// Handler implementations
 	static TSharedPtr<FJsonValue> ListAssets(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> SearchAssets(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> ReadAsset(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> ReadAssetProperties(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> DuplicateAsset(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> RenameAsset(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> MoveAsset(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> DeleteAsset(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> SaveAsset(const TSharedPtr<FJsonObject>& Params);
 };

@@ -17,7 +17,7 @@
 
 void FLevelHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 {
-	Registry.RegisterHandler(TEXT("get_outliner"), &GetOutliner);
+	Registry.RegisterHandler(TEXT("get_world_outliner"), &GetOutliner);
 	Registry.RegisterHandler(TEXT("place_actor"), &PlaceActor);
 	Registry.RegisterHandler(TEXT("delete_actor"), &DeleteActor);
 	Registry.RegisterHandler(TEXT("get_actor_details"), &GetActorDetails);
@@ -35,30 +35,62 @@ TSharedPtr<FJsonValue> FLevelHandlers::GetOutliner(const TSharedPtr<FJsonObject>
 		return MakeShared<FJsonValueObject>(Result);
 	}
 
+	FString ClassFilter;
+	Params->TryGetStringField(TEXT("classFilter"), ClassFilter);
+	FString NameFilter;
+	Params->TryGetStringField(TEXT("nameFilter"), NameFilter);
+	int32 Limit = 500;
+	Params->TryGetNumberField(TEXT("limit"), Limit);
+
 	TArray<TSharedPtr<FJsonValue>> ActorsArray;
+	int32 TotalCount = 0;
 	for (TActorIterator<AActor> ActorIt(World); ActorIt; ++ActorIt)
 	{
 		AActor* Actor = *ActorIt;
-		if (Actor)
-		{
-			TSharedPtr<FJsonObject> ActorObj = MakeShared<FJsonObject>();
-			ActorObj->SetStringField(TEXT("label"), Actor->GetActorLabel());
-			ActorObj->SetStringField(TEXT("class"), Actor->GetClass()->GetName());
-			ActorObj->SetStringField(TEXT("path"), Actor->GetPathName());
-			
-			FVector Location = Actor->GetActorLocation();
-			TSharedPtr<FJsonObject> LocationObj = MakeShared<FJsonObject>();
-			LocationObj->SetNumberField(TEXT("x"), Location.X);
-			LocationObj->SetNumberField(TEXT("y"), Location.Y);
-			LocationObj->SetNumberField(TEXT("z"), Location.Z);
-			ActorObj->SetObjectField(TEXT("location"), LocationObj);
+		if (!Actor) continue;
+		TotalCount++;
 
-			ActorsArray.Add(MakeShared<FJsonValueObject>(ActorObj));
+		FString ActorClass = Actor->GetClass()->GetName();
+		FString ActorName = Actor->GetName();
+		FString ActorLabel = Actor->GetActorLabel();
+
+		if (!ClassFilter.IsEmpty() && !ActorClass.Contains(ClassFilter))
+		{
+			continue;
 		}
+		if (!NameFilter.IsEmpty() && !ActorName.Contains(NameFilter) && !ActorLabel.Contains(NameFilter))
+		{
+			continue;
+		}
+		if (ActorsArray.Num() >= Limit) break;
+
+		TSharedPtr<FJsonObject> ActorObj = MakeShared<FJsonObject>();
+		ActorObj->SetStringField(TEXT("name"), ActorName);
+		ActorObj->SetStringField(TEXT("label"), ActorLabel);
+		ActorObj->SetStringField(TEXT("class"), ActorClass);
+		ActorObj->SetStringField(TEXT("path"), Actor->GetPathName());
+
+		FVector Location = Actor->GetActorLocation();
+		TSharedPtr<FJsonObject> LocationObj = MakeShared<FJsonObject>();
+		LocationObj->SetNumberField(TEXT("x"), Location.X);
+		LocationObj->SetNumberField(TEXT("y"), Location.Y);
+		LocationObj->SetNumberField(TEXT("z"), Location.Z);
+		ActorObj->SetObjectField(TEXT("location"), LocationObj);
+
+		FRotator Rotation = Actor->GetActorRotation();
+		TSharedPtr<FJsonObject> RotationObj = MakeShared<FJsonObject>();
+		RotationObj->SetNumberField(TEXT("pitch"), Rotation.Pitch);
+		RotationObj->SetNumberField(TEXT("yaw"), Rotation.Yaw);
+		RotationObj->SetNumberField(TEXT("roll"), Rotation.Roll);
+		ActorObj->SetObjectField(TEXT("rotation"), RotationObj);
+
+		ActorsArray.Add(MakeShared<FJsonValueObject>(ActorObj));
 	}
 
+	Result->SetStringField(TEXT("worldName"), World->GetName());
+	Result->SetNumberField(TEXT("totalActors"), TotalCount);
+	Result->SetNumberField(TEXT("returnedActors"), ActorsArray.Num());
 	Result->SetArrayField(TEXT("actors"), ActorsArray);
-	Result->SetNumberField(TEXT("count"), ActorsArray.Num());
 	Result->SetBoolField(TEXT("success"), true);
 
 	return MakeShared<FJsonValueObject>(Result);

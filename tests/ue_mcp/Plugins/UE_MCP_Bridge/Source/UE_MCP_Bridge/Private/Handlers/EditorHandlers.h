@@ -15,4 +15,5 @@ private:
 	static TSharedPtr<FJsonValue> ExecuteCommand(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> ExecutePython(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> SetProperty(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> SetConfig(const TSharedPtr<FJsonObject>& Params);
 };

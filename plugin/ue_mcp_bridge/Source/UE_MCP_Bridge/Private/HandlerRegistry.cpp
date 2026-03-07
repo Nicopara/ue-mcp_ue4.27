@@ -39,8 +39,8 @@ TSharedPtr<FJsonValue> FMCPHandlerRegistry::ExecuteHandler(const FString& Method
 		return ExecutePythonHandler(MethodName, Params);
 	}
 
-	// Handler not found
-	return MakeShared<FJsonValueObject>(MakeShared<FJsonObject>());
+	// Handler not found - return nullptr so BridgeServer sends "Unknown method" error
+	return nullptr;
 }
 
 bool FMCPHandlerRegistry::HasHandler(const FString& MethodName) const

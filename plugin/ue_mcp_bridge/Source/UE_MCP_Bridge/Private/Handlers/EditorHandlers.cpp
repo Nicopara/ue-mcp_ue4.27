@@ -12,12 +12,18 @@
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "IPythonScriptPlugin.h"
+#include "Misc/ConfigCacheIni.h"
+#include "Misc/ConfigContext.h"
+#include "Misc/Paths.h"
+#include "HAL/PlatformFileManager.h"
+#include "Misc/FileHelper.h"
 
 void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 {
 	Registry.RegisterHandler(TEXT("execute_command"), &ExecuteCommand);
 	Registry.RegisterHandler(TEXT("execute_python"), &ExecutePython);
 	Registry.RegisterHandler(TEXT("set_property"), &SetProperty);
+	Registry.RegisterHandler(TEXT("set_config"), &SetConfig);
 }
 
 TSharedPtr<FJsonValue> FEditorHandlers::ExecuteCommand(const TSharedPtr<FJsonObject>& Params)
@@ -184,6 +190,56 @@ TSharedPtr<FJsonValue> FEditorHandlers::SetProperty(const TSharedPtr<FJsonObject
 
 	Result->SetStringField(TEXT("path"), AssetPath);
 	Result->SetStringField(TEXT("propertyName"), PropertyName);
+	Result->SetBoolField(TEXT("success"), true);
+
+	return MakeShared<FJsonValueObject>(Result);
+}
+
+TSharedPtr<FJsonValue> FEditorHandlers::SetConfig(const TSharedPtr<FJsonObject>& Params)
+{
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+	FString ConfigName;
+	if (!Params->TryGetStringField(TEXT("configName"), ConfigName))
+	{
+		Params->TryGetStringField(TEXT("configFile"), ConfigName);
+	}
+	FString Section;
+	if (!Params->TryGetStringField(TEXT("section"), Section))
+	{
+		Result->SetStringField(TEXT("error"), TEXT("Missing 'section' parameter"));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+	FString Key;
+	if (!Params->TryGetStringField(TEXT("key"), Key))
+	{
+		Result->SetStringField(TEXT("error"), TEXT("Missing 'key' parameter"));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+	FString Value;
+	Params->TryGetStringField(TEXT("value"), Value);
+
+	if (ConfigName.IsEmpty())
+	{
+		ConfigName = TEXT("DefaultEngine.ini");
+	}
+	else if (!ConfigName.EndsWith(TEXT(".ini")))
+	{
+		ConfigName = FString::Printf(TEXT("Default%s.ini"), *ConfigName);
+	}
+
+	FString ConfigDir = FPaths::ProjectConfigDir();
+	FString IniPath = FPaths::Combine(ConfigDir, ConfigName);
+
+	GConfig->SetString(*Section, *Key, *Value, IniPath);
+	GConfig->Flush(false, IniPath);
+
+	Result->SetStringField(TEXT("configFile"), ConfigName);
+	Result->SetStringField(TEXT("section"), Section);
+	Result->SetStringField(TEXT("key"), Key);
+	Result->SetStringField(TEXT("value"), Value);
 	Result->SetBoolField(TEXT("success"), true);
 
 	return MakeShared<FJsonValueObject>(Result);
