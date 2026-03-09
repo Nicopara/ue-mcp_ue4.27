@@ -15,6 +15,15 @@
 #include "Handlers/GasHandlers.h"
 #include "Handlers/GameplayHandlers.h"
 #include "Handlers/DialogHandlers.h"
+#include "Handlers/MaterialHandlers.h"
+#include "Handlers/AnimationHandlers.h"
+#include "Handlers/AudioHandlers.h"
+#include "Handlers/WidgetHandlers.h"
+#include "Handlers/FoliageHandlers.h"
+#include "Handlers/LandscapeHandlers.h"
+#include "Handlers/NetworkingHandlers.h"
+#include "Handlers/NiagaraHandlers.h"
+#include "Handlers/PCGHandlers.h"
 
 // Platform-specific socket includes
 #if PLATFORM_WINDOWS
@@ -55,6 +64,15 @@ FMCPBridgeServer::FMCPBridgeServer(int32 Port)
 	FGasHandlers::RegisterHandlers(HandlerRegistry);
 	FGameplayHandlers::RegisterHandlers(HandlerRegistry);
 	FDialogHandlers::RegisterHandlers(HandlerRegistry);
+	FMaterialHandlers::RegisterHandlers(HandlerRegistry);
+	FAnimationHandlers::RegisterHandlers(HandlerRegistry);
+	FAudioHandlers::RegisterHandlers(HandlerRegistry);
+	FWidgetHandlers::RegisterHandlers(HandlerRegistry);
+	FFoliageHandlers::RegisterHandlers(HandlerRegistry);
+	FLandscapeHandlers::RegisterHandlers(HandlerRegistry);
+	FNetworkingHandlers::RegisterHandlers(HandlerRegistry);
+	FNiagaraHandlers::RegisterHandlers(HandlerRegistry);
+	FPCGHandlers::RegisterHandlers(HandlerRegistry);
 }
 
 FMCPBridgeServer::~FMCPBridgeServer()

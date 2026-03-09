@@ -10,6 +10,7 @@
 #include "Misc/Paths.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
+#include "UObject/TopLevelAssetPath.h"
 
 void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 {
@@ -22,6 +23,7 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("move_asset"), &MoveAsset);
 	Registry.RegisterHandler(TEXT("delete_asset"), &DeleteAsset);
 	Registry.RegisterHandler(TEXT("save_asset"), &SaveAsset);
+	Registry.RegisterHandler(TEXT("list_textures"), &ListTextures);
 }
 
 TSharedPtr<FJsonValue> FAssetHandlers::ListAssets(const TSharedPtr<FJsonObject>& Params)
@@ -317,5 +319,39 @@ TSharedPtr<FJsonValue> FAssetHandlers::SaveAsset(const TSharedPtr<FJsonObject>& 
 		Result->SetBoolField(TEXT("success"), true);
 	}
 
+	return MakeShared<FJsonValueObject>(Result);
+}
+
+TSharedPtr<FJsonValue> FAssetHandlers::ListTextures(const TSharedPtr<FJsonObject>& Params)
+{
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+	FString Directory = TEXT("/Game/");
+	Params->TryGetStringField(TEXT("directory"), Directory);
+	int32 MaxResults = 50;
+	Params->TryGetNumberField(TEXT("maxResults"), MaxResults);
+
+	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+	IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
+
+	TArray<FAssetData> AssetDataList;
+	AssetRegistry.GetAssetsByClass(FTopLevelAssetPath(TEXT("/Script/Engine"), TEXT("Texture2D")), AssetDataList, true);
+
+	TArray<TSharedPtr<FJsonValue>> TexturesArray;
+	for (const FAssetData& AssetData : AssetDataList)
+	{
+		if (TexturesArray.Num() >= MaxResults) break;
+		FString AssetPath = AssetData.GetObjectPathString();
+		if (!AssetPath.StartsWith(Directory)) continue;
+
+		TSharedPtr<FJsonObject> TexObj = MakeShared<FJsonObject>();
+		TexObj->SetStringField(TEXT("name"), AssetData.AssetName.ToString());
+		TexObj->SetStringField(TEXT("path"), AssetPath);
+		TexturesArray.Add(MakeShared<FJsonValueObject>(TexObj));
+	}
+
+	Result->SetArrayField(TEXT("textures"), TexturesArray);
+	Result->SetNumberField(TEXT("count"), TexturesArray.Num());
+	Result->SetBoolField(TEXT("success"), true);
 	return MakeShared<FJsonValueObject>(Result);
 }

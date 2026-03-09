@@ -21,4 +21,5 @@ private:
 	static TSharedPtr<FJsonValue> MoveAsset(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> DeleteAsset(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> SaveAsset(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> ListTextures(const TSharedPtr<FJsonObject>& Params);
 };

@@ -18,6 +18,18 @@ private:
 	static TSharedPtr<FJsonValue> AddComponent(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> AddBlueprintInterface(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> CompileBlueprint(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> SearchNodeTypes(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> ListNodeTypes(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> ListBlueprintVariables(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> SetVariableProperties(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> CreateFunction(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> ListBlueprintFunctions(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> AddNode(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> ReadBlueprintGraph(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> AddEventDispatcher(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> RenameFunction(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> DeleteFunction(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> CreateBlueprintInterface(const TSharedPtr<FJsonObject>& Params);
 
 	// Helper functions
 	static class UBlueprint* LoadBlueprint(const FString& AssetPath);

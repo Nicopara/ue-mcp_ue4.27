@@ -61,6 +61,13 @@ public class UE_MCP_Bridge : ModuleRules
 				"Sequencer",
 				"LevelEditor",
 				"WorkspaceMenuStructure",
+				"NavigationSystem",
+				"AIModule",
+				"EnhancedInput",
+				"GameplayAbilities",
+				"InputCore",
+				"Foliage",
+				"UMGEditor",
 			}
 		);
 
