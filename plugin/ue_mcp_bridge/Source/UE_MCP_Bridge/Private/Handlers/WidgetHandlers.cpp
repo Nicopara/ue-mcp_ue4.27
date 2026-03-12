@@ -9,9 +9,9 @@
 #include "UObject/SavePackage.h"
 #include "EditorScriptingUtilities/Public/EditorAssetLibrary.h"
 #include "WidgetBlueprint.h"
-// WidgetBlueprintFactory.h - use Factories module instead
-#include "Factories/Factory.h"
+#include "WidgetBlueprintFactory.h"
 #include "Blueprint/UserWidget.h"
+#include "Blueprint/WidgetTree.h"
 #include "Components/Widget.h"
 #include "Components/PanelWidget.h"
 #include "Dom/JsonObject.h"

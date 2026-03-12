@@ -46,12 +46,8 @@ TSharedPtr<FJsonValue> FFoliageHandlers::ListFoliageTypes(const TSharedPtr<FJson
 			TypeObj->SetStringField(TEXT("path"), FoliageType->GetPathName());
 			TypeObj->SetNumberField(TEXT("instanceCount"), FoliageInfo.Instances.Num());
 
-			// Get source mesh info if available
-			UStaticMesh* Mesh = FoliageType->GetStaticMesh();
-			if (Mesh)
-			{
-				TypeObj->SetStringField(TEXT("staticMesh"), Mesh->GetPathName());
-			}
+			// Get source info
+			TypeObj->SetStringField(TEXT("className"), FoliageType->GetClass()->GetName());
 
 			FoliageTypesArray.Add(MakeShared<FJsonValueObject>(TypeObj));
 		}

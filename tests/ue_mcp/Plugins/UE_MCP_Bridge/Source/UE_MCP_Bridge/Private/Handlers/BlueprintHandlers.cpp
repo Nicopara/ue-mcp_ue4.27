@@ -769,7 +769,7 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::CreateFunction(const TSharedPtr<FJson
 		return MakeShared<FJsonValueObject>(Result);
 	}
 
-	UEdGraph* NewGraph = FBlueprintEditorUtils::AddFunction(Blueprint, FName(*FunctionName));
+	UEdGraph* NewGraph = FBlueprintEditorUtils::AddFunctionGraph(Blueprint, FunctionName, /*bIsUserCreated=*/true);
 	if (!NewGraph)
 	{
 		Result->SetStringField(TEXT("error"), FString::Printf(TEXT("Failed to create function: %s"), *FunctionName));
