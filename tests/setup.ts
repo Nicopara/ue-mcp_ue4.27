@@ -31,12 +31,37 @@ export async function callBridge(
   try {
     const result = await bridge.call(method, params);
     return { method, ok: true, ms: Math.round(performance.now() - start), result };
-  } catch (e: any) {
-    return { method, ok: false, ms: Math.round(performance.now() - start), error: e.message };
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    return { method, ok: false, ms: Math.round(performance.now() - start), error: message };
   }
 }
 
 export const TEST_PREFIX = "/Game/MCPTest";
+
+/** Safely extract an array field from an untyped bridge result. */
+export function resultArray(
+  result: unknown,
+  ...keys: string[]
+): unknown[] | undefined {
+  if (Array.isArray(result)) return result;
+  if (result && typeof result === "object") {
+    const obj = result as Record<string, unknown>;
+    for (const key of keys) {
+      const val = obj[key];
+      if (Array.isArray(val)) return val;
+    }
+  }
+  return undefined;
+}
+
+/** Safely extract a field from an untyped bridge result. */
+export function resultField(result: unknown, key: string): unknown {
+  if (result && typeof result === "object") {
+    return (result as Record<string, unknown>)[key];
+  }
+  return undefined;
+}
 
 // ---------------------------------------------------------------------------
 // Feature gating — skip tests when required UE plugins are not loaded

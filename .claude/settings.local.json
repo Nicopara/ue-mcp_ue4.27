@@ -9,7 +9,9 @@
       "Bash(npm test:*)",
       "Bash(npm run:*)",
       "Bash(cp:*)",
-      "Bash(taskkill:*)"
+      "Bash(taskkill:*)",
+      "Bash(git:*)",
+      "Bash(node:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

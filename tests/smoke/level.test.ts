@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { getBridge, disconnectBridge, callBridge, TEST_PREFIX } from "../setup.js";
+import { getBridge, disconnectBridge, callBridge, resultArray, TEST_PREFIX } from "../setup.js";
 import type { EditorBridge } from "../../src/bridge.js";
 
 let bridge: EditorBridge;
@@ -56,10 +56,10 @@ describe("level — actor details (dynamic)", () => {
   beforeAll(async () => {
     const r = await callBridge(bridge, "get_world_outliner");
     if (r.ok) {
-      const res = r.result as any;
-      const actors = res?.actors ?? res?.outliner ?? res;
-      if (Array.isArray(actors) && actors.length > 0) {
-        firstActor = actors[0]?.label ?? actors[0]?.name ?? actors[0]?.actorLabel;
+      const actors = resultArray(r.result, "actors", "outliner");
+      if (actors && actors.length > 0) {
+        const first = actors[0] as Record<string, unknown>;
+        firstActor = (first.label ?? first.name ?? first.actorLabel) as string | undefined;
       }
     }
   });

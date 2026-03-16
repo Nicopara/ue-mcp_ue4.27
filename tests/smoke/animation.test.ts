@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { getBridge, disconnectBridge, callBridge } from "../setup.js";
+import { getBridge, disconnectBridge, callBridge, resultArray } from "../setup.js";
 import type { EditorBridge } from "../../src/bridge.js";
 
 let bridge: EditorBridge;
@@ -25,9 +25,10 @@ describe("animation — read specific (dynamic)", () => {
   beforeAll(async () => {
     const r = await callBridge(bridge, "list_skeletal_meshes", { recursive: true });
     if (r.ok) {
-      const items = (r.result as any)?.assets ?? (r.result as any)?.meshes ?? r.result;
-      if (Array.isArray(items) && items.length > 0) {
-        skelMeshPath = items[0].path ?? items[0].asset_path ?? items[0].objectPath;
+      const items = resultArray(r.result, "assets", "meshes");
+      if (items && items.length > 0) {
+        const first = items[0] as Record<string, unknown>;
+        skelMeshPath = (first.path ?? first.asset_path ?? first.objectPath) as string | undefined;
       }
     }
   });

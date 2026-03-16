@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { getBridge, disconnectBridge, callBridge } from "../setup.js";
+import { getBridge, disconnectBridge, callBridge, resultField } from "../setup.js";
 import type { EditorBridge } from "../../src/bridge.js";
 
 let bridge: EditorBridge;
@@ -8,7 +8,7 @@ let hasLandscape = false;
 beforeAll(async () => {
   bridge = await getBridge();
   const r = await callBridge(bridge, "get_landscape_info");
-  hasLandscape = r.ok && r.result != null && !(r.result as any)?.error;
+  hasLandscape = r.ok && r.result != null && !resultField(r.result, "error");
 });
 afterAll(() => disconnectBridge());
 

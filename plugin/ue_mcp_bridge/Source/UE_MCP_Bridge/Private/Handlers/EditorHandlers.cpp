@@ -7,6 +7,7 @@
 #include "Editor/EditorEngine.h"
 #include "Editor.h"
 #include "Kismet/KismetSystemLibrary.h"
+#include "Kismet/GameplayStatics.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "EditorScriptingUtilities/Public/EditorAssetLibrary.h"
 #include "Dom/JsonObject.h"
@@ -25,6 +26,12 @@
 #include "Logging/MessageLog.h"
 #include "HighResScreenshot.h"
 #include "Misc/OutputDeviceRedirector.h"
+#include "FileHelpers.h"
+#include "Misc/DateTime.h"
+#include "HAL/FileManager.h"
+#include "EngineUtils.h"
+#include "GameFramework/Actor.h"
+#include "EditorValidatorSubsystem.h"
 
 void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 {
@@ -32,6 +39,7 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("execute_python"), &ExecutePython);
 	Registry.RegisterHandler(TEXT("set_property"), &SetProperty);
 	Registry.RegisterHandler(TEXT("set_config"), &SetConfig);
+	Registry.RegisterHandler(TEXT("read_config"), &ReadConfig);
 	Registry.RegisterHandler(TEXT("get_viewport_info"), &GetViewportInfo);
 	Registry.RegisterHandler(TEXT("get_editor_performance_stats"), &GetEditorPerformanceStats);
 	Registry.RegisterHandler(TEXT("get_output_log"), &GetOutputLog);
@@ -44,6 +52,15 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("undo"), &Undo);
 	Registry.RegisterHandler(TEXT("redo"), &Redo);
 	Registry.RegisterHandler(TEXT("reload_handlers"), &ReloadHandlers);
+	Registry.RegisterHandler(TEXT("save_asset"), &SaveAsset);
+	Registry.RegisterHandler(TEXT("save_all"), &SaveAll);
+	Registry.RegisterHandler(TEXT("get_crash_reports"), &GetCrashReports);
+	Registry.RegisterHandler(TEXT("read_editor_log"), &ReadEditorLog);
+	Registry.RegisterHandler(TEXT("pie_get_runtime_value"), &PieGetRuntimeValue);
+	Registry.RegisterHandler(TEXT("build_lighting"), &BuildLighting);
+	Registry.RegisterHandler(TEXT("build_all"), &BuildAll);
+	Registry.RegisterHandler(TEXT("validate_assets"), &ValidateAssets);
+	Registry.RegisterHandler(TEXT("cook_content"), &CookContent);
 }
 
 TSharedPtr<FJsonValue> FEditorHandlers::ExecuteCommand(const TSharedPtr<FJsonObject>& Params)
@@ -260,6 +277,58 @@ TSharedPtr<FJsonValue> FEditorHandlers::SetConfig(const TSharedPtr<FJsonObject>&
 	Result->SetStringField(TEXT("section"), Section);
 	Result->SetStringField(TEXT("key"), Key);
 	Result->SetStringField(TEXT("value"), Value);
+	Result->SetBoolField(TEXT("success"), true);
+
+	return MakeShared<FJsonValueObject>(Result);
+}
+
+TSharedPtr<FJsonValue> FEditorHandlers::ReadConfig(const TSharedPtr<FJsonObject>& Params)
+{
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+	FString ConfigName;
+	if (!Params->TryGetStringField(TEXT("configFile"), ConfigName))
+	{
+		Params->TryGetStringField(TEXT("configName"), ConfigName);
+	}
+	FString Section;
+	if (!Params->TryGetStringField(TEXT("section"), Section))
+	{
+		Result->SetStringField(TEXT("error"), TEXT("Missing 'section' parameter"));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+	FString Key;
+	if (!Params->TryGetStringField(TEXT("key"), Key))
+	{
+		Result->SetStringField(TEXT("error"), TEXT("Missing 'key' parameter"));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	if (ConfigName.IsEmpty())
+	{
+		ConfigName = TEXT("DefaultEngine.ini");
+	}
+	else if (!ConfigName.EndsWith(TEXT(".ini")))
+	{
+		ConfigName = FString::Printf(TEXT("Default%s.ini"), *ConfigName);
+	}
+
+	FString ConfigDir = FPaths::ProjectConfigDir();
+	FString IniPath = FPaths::Combine(ConfigDir, ConfigName);
+
+	FString Value;
+	bool bFound = GConfig->GetString(*Section, *Key, Value, IniPath);
+
+	Result->SetStringField(TEXT("configFile"), ConfigName);
+	Result->SetStringField(TEXT("section"), Section);
+	Result->SetStringField(TEXT("key"), Key);
+	Result->SetBoolField(TEXT("found"), bFound);
+	if (bFound)
+	{
+		Result->SetStringField(TEXT("value"), Value);
+	}
 	Result->SetBoolField(TEXT("success"), true);
 
 	return MakeShared<FJsonValueObject>(Result);
@@ -591,6 +660,529 @@ TSharedPtr<FJsonValue> FEditorHandlers::ReloadHandlers(const TSharedPtr<FJsonObj
 	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 
 	// No-op in C++ bridge - this was used in the Python bridge to reload Python handler modules.
+	Result->SetBoolField(TEXT("success"), true);
+
+	return MakeShared<FJsonValueObject>(Result);
+}
+
+TSharedPtr<FJsonValue> FEditorHandlers::SaveAsset(const TSharedPtr<FJsonObject>& Params)
+{
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+	FString AssetPath;
+	if (!Params->TryGetStringField(TEXT("path"), AssetPath))
+	{
+		Result->SetStringField(TEXT("error"), TEXT("Missing 'path' parameter"));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	bool bSuccess = UEditorAssetLibrary::SaveAsset(AssetPath);
+
+	Result->SetStringField(TEXT("path"), AssetPath);
+	Result->SetBoolField(TEXT("success"), bSuccess);
+	if (!bSuccess)
+	{
+		Result->SetStringField(TEXT("error"), FString::Printf(TEXT("Failed to save asset: %s"), *AssetPath));
+	}
+
+	return MakeShared<FJsonValueObject>(Result);
+}
+
+TSharedPtr<FJsonValue> FEditorHandlers::SaveAll(const TSharedPtr<FJsonObject>& Params)
+{
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+	// Save all dirty packages using FEditorFileUtils
+	bool bPromptUserToSave = false;
+	bool bSaveMapPackages = true;
+	bool bSaveContentPackages = true;
+	bool bSuccess = FEditorFileUtils::SaveDirtyPackages(bPromptUserToSave, bSaveMapPackages, bSaveContentPackages);
+
+	Result->SetBoolField(TEXT("success"), bSuccess);
+	Result->SetStringField(TEXT("message"), bSuccess ? TEXT("All dirty packages saved") : TEXT("Some packages may have failed to save"));
+
+	return MakeShared<FJsonValueObject>(Result);
+}
+
+TSharedPtr<FJsonValue> FEditorHandlers::GetCrashReports(const TSharedPtr<FJsonObject>& Params)
+{
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+	FString CrashesDir = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Crashes"));
+	IFileManager& FileManager = IFileManager::Get();
+
+	TArray<TSharedPtr<FJsonValue>> CrashesArray;
+
+	if (FileManager.DirectoryExists(*CrashesDir))
+	{
+		// Find all subdirectories in Crashes folder
+		TArray<FString> CrashFolders;
+		FileManager.FindFiles(CrashFolders, *FPaths::Combine(CrashesDir, TEXT("*")), false, true);
+
+		for (const FString& FolderName : CrashFolders)
+		{
+			FString FolderPath = FPaths::Combine(CrashesDir, FolderName);
+
+			TSharedPtr<FJsonObject> CrashObj = MakeShared<FJsonObject>();
+			CrashObj->SetStringField(TEXT("folder"), FolderName);
+			CrashObj->SetStringField(TEXT("path"), FolderPath);
+
+			// Get folder timestamp
+			FDateTime TimeStamp = FileManager.GetTimeStamp(*FolderPath);
+			if (TimeStamp != FDateTime::MinValue())
+			{
+				CrashObj->SetStringField(TEXT("timestamp"), TimeStamp.ToString());
+			}
+
+			// List files inside the crash folder
+			TArray<FString> CrashFiles;
+			FileManager.FindFiles(CrashFiles, *FPaths::Combine(FolderPath, TEXT("*")), true, false);
+
+			TArray<TSharedPtr<FJsonValue>> FilesArray;
+			for (const FString& FileName : CrashFiles)
+			{
+				FilesArray.Add(MakeShared<FJsonValueString>(FileName));
+			}
+			CrashObj->SetArrayField(TEXT("files"), FilesArray);
+
+			CrashesArray.Add(MakeShared<FJsonValueObject>(CrashObj));
+		}
+	}
+
+	Result->SetStringField(TEXT("crashesDir"), CrashesDir);
+	Result->SetNumberField(TEXT("crashCount"), CrashesArray.Num());
+	Result->SetArrayField(TEXT("crashes"), CrashesArray);
+	Result->SetBoolField(TEXT("success"), true);
+
+	return MakeShared<FJsonValueObject>(Result);
+}
+
+TSharedPtr<FJsonValue> FEditorHandlers::ReadEditorLog(const TSharedPtr<FJsonObject>& Params)
+{
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+	// Parameters
+	int32 LastN = 100;
+	if (Params->HasField(TEXT("lastN")))
+	{
+		LastN = static_cast<int32>(Params->GetNumberField(TEXT("lastN")));
+	}
+
+	FString Filter;
+	Params->TryGetStringField(TEXT("filter"), Filter);
+
+	// Locate the editor log file
+	FString LogDir = FPaths::ProjectLogDir();
+	FString LogFilePath = FPaths::Combine(LogDir, TEXT("Editor.log"));
+
+	// If Editor.log doesn't exist, try the current log file
+	if (!FPaths::FileExists(LogFilePath))
+	{
+		LogFilePath = FPaths::Combine(LogDir, FApp::GetProjectName() + TEXT(".log"));
+	}
+
+	if (!FPaths::FileExists(LogFilePath))
+	{
+		Result->SetStringField(TEXT("error"), TEXT("Editor log file not found"));
+		Result->SetStringField(TEXT("logDir"), LogDir);
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	// Read the log file into lines
+	TArray<FString> AllLines;
+	if (!FFileHelper::LoadFileToStringArray(AllLines, *LogFilePath))
+	{
+		Result->SetStringField(TEXT("error"), TEXT("Failed to read editor log file"));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	// Apply filter and take last N lines
+	TArray<FString> ResultLines;
+	if (Filter.IsEmpty())
+	{
+		// No filter - take the last N lines directly
+		int32 StartIndex = FMath::Max(0, AllLines.Num() - LastN);
+		for (int32 i = StartIndex; i < AllLines.Num(); ++i)
+		{
+			ResultLines.Add(AllLines[i]);
+		}
+	}
+	else
+	{
+		// Filter lines (case-insensitive) then take last N
+		FString FilterLower = Filter.ToLower();
+		TArray<FString> FilteredLines;
+		for (const FString& Line : AllLines)
+		{
+			if (Line.ToLower().Contains(FilterLower))
+			{
+				FilteredLines.Add(Line);
+			}
+		}
+		int32 StartIndex = FMath::Max(0, FilteredLines.Num() - LastN);
+		for (int32 i = StartIndex; i < FilteredLines.Num(); ++i)
+		{
+			ResultLines.Add(FilteredLines[i]);
+		}
+	}
+
+	// Convert to JSON array
+	TArray<TSharedPtr<FJsonValue>> LinesArray;
+	for (const FString& Line : ResultLines)
+	{
+		LinesArray.Add(MakeShared<FJsonValueString>(Line));
+	}
+
+	Result->SetStringField(TEXT("logFile"), LogFilePath);
+	Result->SetNumberField(TEXT("lineCount"), ResultLines.Num());
+	Result->SetNumberField(TEXT("totalLines"), AllLines.Num());
+	Result->SetArrayField(TEXT("lines"), LinesArray);
+	Result->SetBoolField(TEXT("success"), true);
+
+	return MakeShared<FJsonValueObject>(Result);
+}
+
+TSharedPtr<FJsonValue> FEditorHandlers::PieGetRuntimeValue(const TSharedPtr<FJsonObject>& Params)
+{
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+	if (!GEditor)
+	{
+		Result->SetStringField(TEXT("error"), TEXT("Editor not available"));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	// Check if PIE is active
+	if (GEditor->PlayWorld == nullptr)
+	{
+		Result->SetStringField(TEXT("error"), TEXT("PIE is not active. Start a PIE session first."));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	FString ActorPath;
+	if (!Params->TryGetStringField(TEXT("actorPath"), ActorPath))
+	{
+		// Also accept actorLabel as a fallback
+		if (!Params->TryGetStringField(TEXT("actorLabel"), ActorPath))
+		{
+			Result->SetStringField(TEXT("error"), TEXT("Missing 'actorPath' parameter"));
+			Result->SetBoolField(TEXT("success"), false);
+			return MakeShared<FJsonValueObject>(Result);
+		}
+	}
+
+	FString PropertyName;
+	if (!Params->TryGetStringField(TEXT("propertyName"), PropertyName))
+	{
+		Result->SetStringField(TEXT("error"), TEXT("Missing 'propertyName' parameter"));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	// Search for the actor in the PIE world
+	UWorld* PIEWorld = GEditor->PlayWorld;
+	AActor* TargetActor = nullptr;
+
+	for (TActorIterator<AActor> It(PIEWorld); It; ++It)
+	{
+		AActor* Actor = *It;
+		if (Actor->GetName() == ActorPath ||
+			Actor->GetActorLabel() == ActorPath ||
+			Actor->GetPathName() == ActorPath)
+		{
+			TargetActor = Actor;
+			break;
+		}
+	}
+
+	if (!TargetActor)
+	{
+		// Collect available actor names for the error message
+		TArray<TSharedPtr<FJsonValue>> AvailableActors;
+		int32 Count = 0;
+		for (TActorIterator<AActor> It(PIEWorld); It && Count < 20; ++It, ++Count)
+		{
+			AvailableActors.Add(MakeShared<FJsonValueString>((*It)->GetActorLabel()));
+		}
+		Result->SetStringField(TEXT("error"), FString::Printf(TEXT("Actor '%s' not found in PIE world"), *ActorPath));
+		Result->SetArrayField(TEXT("availableActors"), AvailableActors);
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	// Find the property via reflection
+	FProperty* Property = TargetActor->GetClass()->FindPropertyByName(*PropertyName);
+	if (!Property)
+	{
+		Result->SetStringField(TEXT("error"), FString::Printf(TEXT("Property '%s' not found on actor '%s'"), *PropertyName, *ActorPath));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	// Read property value and serialize based on type
+	const void* PropertyValue = Property->ContainerPtrToValuePtr<void>(TargetActor);
+
+	if (FStrProperty* StrProp = CastField<FStrProperty>(Property))
+	{
+		FString Value = StrProp->GetPropertyValue(PropertyValue);
+		Result->SetStringField(TEXT("value"), Value);
+		Result->SetStringField(TEXT("type"), TEXT("String"));
+	}
+	else if (FBoolProperty* BoolProp = CastField<FBoolProperty>(Property))
+	{
+		bool Value = BoolProp->GetPropertyValue(PropertyValue);
+		Result->SetBoolField(TEXT("value"), Value);
+		Result->SetStringField(TEXT("type"), TEXT("Bool"));
+	}
+	else if (FIntProperty* IntProp = CastField<FIntProperty>(Property))
+	{
+		int32 Value = IntProp->GetPropertyValue(PropertyValue);
+		Result->SetNumberField(TEXT("value"), Value);
+		Result->SetStringField(TEXT("type"), TEXT("Int"));
+	}
+	else if (FFloatProperty* FloatProp = CastField<FFloatProperty>(Property))
+	{
+		float Value = FloatProp->GetPropertyValue(PropertyValue);
+		Result->SetNumberField(TEXT("value"), Value);
+		Result->SetStringField(TEXT("type"), TEXT("Float"));
+	}
+	else if (FDoubleProperty* DoubleProp = CastField<FDoubleProperty>(Property))
+	{
+		double Value = DoubleProp->GetPropertyValue(PropertyValue);
+		Result->SetNumberField(TEXT("value"), Value);
+		Result->SetStringField(TEXT("type"), TEXT("Double"));
+	}
+	else if (FNameProperty* NameProp = CastField<FNameProperty>(Property))
+	{
+		FName Value = NameProp->GetPropertyValue(PropertyValue);
+		Result->SetStringField(TEXT("value"), Value.ToString());
+		Result->SetStringField(TEXT("type"), TEXT("Name"));
+	}
+	else if (FTextProperty* TextProp = CastField<FTextProperty>(Property))
+	{
+		FText Value = TextProp->GetPropertyValue(PropertyValue);
+		Result->SetStringField(TEXT("value"), Value.ToString());
+		Result->SetStringField(TEXT("type"), TEXT("Text"));
+	}
+	else if (FStructProperty* StructProp = CastField<FStructProperty>(Property))
+	{
+		// Handle common struct types: FVector, FRotator, FLinearColor
+		if (StructProp->Struct == TBaseStructure<FVector>::Get())
+		{
+			const FVector* Vec = reinterpret_cast<const FVector*>(PropertyValue);
+			TSharedPtr<FJsonObject> VecObj = MakeShared<FJsonObject>();
+			VecObj->SetNumberField(TEXT("x"), Vec->X);
+			VecObj->SetNumberField(TEXT("y"), Vec->Y);
+			VecObj->SetNumberField(TEXT("z"), Vec->Z);
+			Result->SetObjectField(TEXT("value"), VecObj);
+			Result->SetStringField(TEXT("type"), TEXT("Vector"));
+		}
+		else if (StructProp->Struct == TBaseStructure<FRotator>::Get())
+		{
+			const FRotator* Rot = reinterpret_cast<const FRotator*>(PropertyValue);
+			TSharedPtr<FJsonObject> RotObj = MakeShared<FJsonObject>();
+			RotObj->SetNumberField(TEXT("pitch"), Rot->Pitch);
+			RotObj->SetNumberField(TEXT("yaw"), Rot->Yaw);
+			RotObj->SetNumberField(TEXT("roll"), Rot->Roll);
+			Result->SetObjectField(TEXT("value"), RotObj);
+			Result->SetStringField(TEXT("type"), TEXT("Rotator"));
+		}
+		else if (StructProp->Struct == TBaseStructure<FLinearColor>::Get())
+		{
+			const FLinearColor* Color = reinterpret_cast<const FLinearColor*>(PropertyValue);
+			TSharedPtr<FJsonObject> ColorObj = MakeShared<FJsonObject>();
+			ColorObj->SetNumberField(TEXT("r"), Color->R);
+			ColorObj->SetNumberField(TEXT("g"), Color->G);
+			ColorObj->SetNumberField(TEXT("b"), Color->B);
+			ColorObj->SetNumberField(TEXT("a"), Color->A);
+			Result->SetObjectField(TEXT("value"), ColorObj);
+			Result->SetStringField(TEXT("type"), TEXT("LinearColor"));
+		}
+		else
+		{
+			// Generic struct: export to string
+			FString ExportedValue;
+			Property->ExportTextItem_Direct(ExportedValue, PropertyValue, nullptr, nullptr, PPF_None);
+			Result->SetStringField(TEXT("value"), ExportedValue);
+			Result->SetStringField(TEXT("type"), StructProp->Struct->GetName());
+		}
+	}
+	else
+	{
+		// Fallback: export property value as string
+		FString ExportedValue;
+		Property->ExportTextItem_Direct(ExportedValue, PropertyValue, nullptr, nullptr, PPF_None);
+		Result->SetStringField(TEXT("value"), ExportedValue);
+		Result->SetStringField(TEXT("type"), Property->GetCPPType());
+	}
+
+	Result->SetStringField(TEXT("actorPath"), ActorPath);
+	Result->SetStringField(TEXT("propertyName"), PropertyName);
+	Result->SetBoolField(TEXT("success"), true);
+
+	return MakeShared<FJsonValueObject>(Result);
+}
+
+TSharedPtr<FJsonValue> FEditorHandlers::BuildLighting(const TSharedPtr<FJsonObject>& Params)
+{
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+	if (!GEditor || !GEditor->GetEditorWorldContext().World())
+	{
+		Result->SetStringField(TEXT("error"), TEXT("Editor world not available"));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	FString Quality;
+	if (!Params->TryGetStringField(TEXT("quality"), Quality))
+	{
+		Quality = TEXT("Preview");
+	}
+
+	// Map quality string to console command
+	FString Command;
+	if (Quality == TEXT("Preview"))
+	{
+		Command = TEXT("BUILD LIGHTING QUALITY=Preview");
+	}
+	else if (Quality == TEXT("Medium"))
+	{
+		Command = TEXT("BUILD LIGHTING QUALITY=Medium");
+	}
+	else if (Quality == TEXT("High"))
+	{
+		Command = TEXT("BUILD LIGHTING QUALITY=High");
+	}
+	else if (Quality == TEXT("Production"))
+	{
+		Command = TEXT("BUILD LIGHTING QUALITY=Production");
+	}
+	else
+	{
+		Command = TEXT("BUILD LIGHTING QUALITY=Preview");
+	}
+
+	UKismetSystemLibrary::ExecuteConsoleCommand(
+		GEditor->GetEditorWorldContext().World(),
+		Command,
+		nullptr
+	);
+
+	Result->SetStringField(TEXT("quality"), Quality);
+	Result->SetStringField(TEXT("command"), Command);
+	Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Lighting build triggered (%s)"), *Quality));
+	Result->SetBoolField(TEXT("success"), true);
+
+	return MakeShared<FJsonValueObject>(Result);
+}
+
+TSharedPtr<FJsonValue> FEditorHandlers::BuildAll(const TSharedPtr<FJsonObject>& Params)
+{
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+	if (!GEditor || !GEditor->GetEditorWorldContext().World())
+	{
+		Result->SetStringField(TEXT("error"), TEXT("Editor world not available"));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	UWorld* World = GEditor->GetEditorWorldContext().World();
+
+	// Execute full build: geometry, lighting, and paths
+	UKismetSystemLibrary::ExecuteConsoleCommand(World, TEXT("MAP REBUILD"), nullptr);
+	UKismetSystemLibrary::ExecuteConsoleCommand(World, TEXT("BUILD LIGHTING"), nullptr);
+	UKismetSystemLibrary::ExecuteConsoleCommand(World, TEXT("RebuildNavigation"), nullptr);
+
+	Result->SetStringField(TEXT("message"), TEXT("Build All triggered (geometry + lighting + navigation)"));
+	Result->SetBoolField(TEXT("success"), true);
+
+	return MakeShared<FJsonValueObject>(Result);
+}
+
+TSharedPtr<FJsonValue> FEditorHandlers::ValidateAssets(const TSharedPtr<FJsonObject>& Params)
+{
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+	FString Directory;
+	if (!Params->TryGetStringField(TEXT("directory"), Directory))
+	{
+		Directory = TEXT("/Game/");
+	}
+
+	// Try to use the EditorValidatorSubsystem if available
+	UEditorValidatorSubsystem* ValidatorSubsystem = GEditor ? GEditor->GetEditorSubsystem<UEditorValidatorSubsystem>() : nullptr;
+
+	if (ValidatorSubsystem)
+	{
+		// Use the DataValidation console command for broad validation
+		if (GEditor && GEditor->GetEditorWorldContext().World())
+		{
+			FString Command = FString::Printf(TEXT("DataValidation.ValidateAssets %s"), *Directory);
+			UKismetSystemLibrary::ExecuteConsoleCommand(
+				GEditor->GetEditorWorldContext().World(),
+				Command,
+				nullptr
+			);
+		}
+
+		Result->SetStringField(TEXT("directory"), Directory);
+		Result->SetStringField(TEXT("message"), TEXT("Asset validation triggered via EditorValidatorSubsystem"));
+		Result->SetBoolField(TEXT("success"), true);
+	}
+	else
+	{
+		// Fallback: trigger via console command
+		if (GEditor && GEditor->GetEditorWorldContext().World())
+		{
+			UKismetSystemLibrary::ExecuteConsoleCommand(
+				GEditor->GetEditorWorldContext().World(),
+				TEXT("DataValidation.ValidateAssets"),
+				nullptr
+			);
+		}
+
+		Result->SetStringField(TEXT("directory"), Directory);
+		Result->SetStringField(TEXT("message"), TEXT("Asset validation triggered via console command"));
+		Result->SetBoolField(TEXT("success"), true);
+	}
+
+	return MakeShared<FJsonValueObject>(Result);
+}
+
+TSharedPtr<FJsonValue> FEditorHandlers::CookContent(const TSharedPtr<FJsonObject>& Params)
+{
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+	if (!GEditor || !GEditor->GetEditorWorldContext().World())
+	{
+		Result->SetStringField(TEXT("error"), TEXT("Editor world not available"));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	FString Platform;
+	if (!Params->TryGetStringField(TEXT("platform"), Platform))
+	{
+		Platform = TEXT("Windows");
+	}
+
+	FString Command = FString::Printf(TEXT("CookOnTheFly -TargetPlatform=%s"), *Platform);
+	UKismetSystemLibrary::ExecuteConsoleCommand(
+		GEditor->GetEditorWorldContext().World(),
+		Command,
+		nullptr
+	);
+
+	Result->SetStringField(TEXT("platform"), Platform);
+	Result->SetStringField(TEXT("command"), Command);
+	Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Cook triggered for %s"), *Platform));
 	Result->SetBoolField(TEXT("success"), true);
 
 	return MakeShared<FJsonValueObject>(Result);

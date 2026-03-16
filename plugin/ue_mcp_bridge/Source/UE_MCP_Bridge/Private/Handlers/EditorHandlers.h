@@ -16,6 +16,7 @@ private:
 	static TSharedPtr<FJsonValue> ExecutePython(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> SetProperty(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> SetConfig(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> ReadConfig(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> GetViewportInfo(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> GetEditorPerformanceStats(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> GetOutputLog(const TSharedPtr<FJsonObject>& Params);
@@ -28,4 +29,13 @@ private:
 	static TSharedPtr<FJsonValue> Undo(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> Redo(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> ReloadHandlers(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> SaveAsset(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> SaveAll(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> GetCrashReports(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> ReadEditorLog(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> PieGetRuntimeValue(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> BuildLighting(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> BuildAll(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> ValidateAssets(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> CookContent(const TSharedPtr<FJsonObject>& Params);
 };

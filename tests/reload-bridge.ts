@@ -49,8 +49,9 @@ print(f"Reloaded modules: {len(reloaded)}")
   try {
     const result = await bridge.call("execute_python", { code: reloadCode });
     console.log("Reload result:", JSON.stringify(result, null, 2));
-  } catch (e: any) {
-    console.log("Reload error:", e.message);
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.log("Reload error:", message);
   }
 
   bridge.disconnect();

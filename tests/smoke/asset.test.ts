@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { getBridge, disconnectBridge, callBridge, TEST_PREFIX } from "../setup.js";
+import { getBridge, disconnectBridge, callBridge, resultArray, TEST_PREFIX } from "../setup.js";
 import type { EditorBridge } from "../../src/bridge.js";
 
 let bridge: EditorBridge;
@@ -30,9 +30,10 @@ describe("asset — read specific (dynamic)", () => {
   beforeAll(async () => {
     const r = await callBridge(bridge, "search_assets", { query: "*", maxResults: 1 });
     if (r.ok) {
-      const assets = (r.result as any)?.assets ?? (r.result as any);
-      if (Array.isArray(assets) && assets.length > 0) {
-        assetPath = assets[0].path ?? assets[0].asset_path ?? assets[0].objectPath;
+      const assets = resultArray(r.result, "assets");
+      if (assets && assets.length > 0) {
+        const first = assets[0] as Record<string, unknown>;
+        assetPath = (first.path ?? first.asset_path ?? first.objectPath) as string | undefined;
       }
     }
   });
@@ -61,9 +62,10 @@ describe("asset — write (with cleanup)", () => {
 
   it("duplicate_asset", async ({ skip }) => {
     const search = await callBridge(bridge, "search_assets", { query: "*", maxResults: 1 });
-    const assets = (search.result as any)?.assets ?? (search.result as any);
-    if (!search.ok || !Array.isArray(assets) || assets.length === 0) skip();
-    const src = assets[0].path ?? assets[0].asset_path ?? assets[0].objectPath;
+    const assets = resultArray(search.result, "assets");
+    if (!search.ok || !assets || assets.length === 0) skip();
+    const first = assets[0] as Record<string, unknown>;
+    const src = (first.path ?? first.asset_path ?? first.objectPath) as string;
     const dest = `${TEST_PREFIX}/DuplicateTest`;
     const r = await callBridge(bridge, "duplicate_asset", { sourcePath: src, destinationPath: dest });
     expect(r.ok, r.error).toBe(true);
