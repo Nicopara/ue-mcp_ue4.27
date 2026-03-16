@@ -528,9 +528,9 @@ TSharedPtr<FJsonValue> FAssetHandlers::ImportDataTableJson(const TSharedPtr<FJso
 	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 
 	FString AssetPath;
-	if (!Params->TryGetStringField(TEXT("assetPath"), AssetPath))
+	if (!Params->TryGetStringField(TEXT("assetPath"), AssetPath) && !Params->TryGetStringField(TEXT("path"), AssetPath))
 	{
-		Result->SetStringField(TEXT("error"), TEXT("Missing 'assetPath' parameter"));
+		Result->SetStringField(TEXT("error"), TEXT("Missing 'path' or 'assetPath' parameter"));
 		Result->SetBoolField(TEXT("success"), false);
 		return MakeShared<FJsonValueObject>(Result);
 	}
@@ -589,9 +589,9 @@ TSharedPtr<FJsonValue> FAssetHandlers::ExportDataTableJson(const TSharedPtr<FJso
 	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 
 	FString AssetPath;
-	if (!Params->TryGetStringField(TEXT("assetPath"), AssetPath))
+	if (!Params->TryGetStringField(TEXT("assetPath"), AssetPath) && !Params->TryGetStringField(TEXT("path"), AssetPath))
 	{
-		Result->SetStringField(TEXT("error"), TEXT("Missing 'assetPath' parameter"));
+		Result->SetStringField(TEXT("error"), TEXT("Missing 'path' or 'assetPath' parameter"));
 		Result->SetBoolField(TEXT("success"), false);
 		return MakeShared<FJsonValueObject>(Result);
 	}
