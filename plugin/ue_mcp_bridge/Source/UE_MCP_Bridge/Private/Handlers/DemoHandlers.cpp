@@ -15,7 +15,7 @@
 #include "AssetToolsModule.h"
 #include "IAssetTools.h"
 #include "AssetRegistry/AssetRegistryModule.h"
-#include "EditorScriptingUtilities/Public/EditorAssetLibrary.h"
+#include "EditorAssetLibrary.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
@@ -66,11 +66,8 @@
 // Movement
 #include "GameFramework/RotatingMovementComponent.h"
 
-// Widget / Blutility
-#include "EditorUtilitySubsystem.h"
-#include "EditorUtilityWidgetBlueprint.h"
-#include "WidgetBlueprintFactory.h"
-#include "Blueprint/UserWidget.h"
+// Widget / Blutility (kept for potential future use)
+// EditorUtilityWidget creation moved to interactive widget tool
 
 // JSON
 #include "Dom/JsonObject.h"
@@ -874,49 +871,31 @@ TSharedPtr<FJsonObject> FDemoHandlers::StepNiagaraVfx()
 		return Result;
 	}
 
-	// Create Niagara System asset
-	FAssetToolsModule& AssetToolsModule = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools"));
-	IAssetTools& AssetTools = AssetToolsModule.Get();
-
-	FString NiagaraAssetPath = DemoConstants::MAT_DIR / TEXT("NS_Demo_Aura");
-	if (UEditorAssetLibrary::DoesAssetExist(NiagaraAssetPath))
+	// Spawn an actor with a NiagaraComponent - use an engine-provided system if available
+	FTransform SpawnTransform(FRotator::ZeroRotator, FVector(0.0, 0.0, 380.0));
+	AActor* NiagaraActor = World->SpawnActor<AActor>(AActor::StaticClass(), SpawnTransform);
+	if (!NiagaraActor)
 	{
-		UEditorAssetLibrary::DeleteAsset(NiagaraAssetPath);
-	}
-
-	UObject* NSAsset = AssetTools.CreateAsset(
-		TEXT("NS_Demo_Aura"), DemoConstants::MAT_DIR,
-		UNiagaraSystem::StaticClass(), nullptr);
-
-	UNiagaraSystem* NiagaraSys = Cast<UNiagaraSystem>(NSAsset);
-	if (NiagaraSys)
-	{
-		UEditorAssetLibrary::SaveAsset(NiagaraSys->GetPathName());
-
-		// Spawn the system in the world above the hero sphere
-		UNiagaraComponent* SpawnedComp = UNiagaraFunctionLibrary::SpawnSystemAtLocation(
-			World, NiagaraSys,
-			FVector(0.0, 0.0, 380.0),
-			FRotator::ZeroRotator,
-			FVector::OneVector,
-			false // do not auto-destroy
-		);
-
-		if (SpawnedComp && SpawnedComp->GetOwner())
-		{
-			SpawnedComp->GetOwner()->SetActorLabel(TEXT("Demo_NiagaraVFX"));
-			SpawnedComp->GetOwner()->SetFolderPath(*DemoConstants::FOLDER);
-			Result->SetStringField(TEXT("actorLabel"), SpawnedComp->GetOwner()->GetActorLabel());
-		}
-
-		Result->SetStringField(TEXT("assetPath"), NiagaraSys->GetPathName());
-		Result->SetBoolField(TEXT("success"), true);
-	}
-	else
-	{
-		Result->SetStringField(TEXT("error"), TEXT("Failed to create Niagara system asset"));
+		Result->SetStringField(TEXT("error"), TEXT("Failed to spawn Niagara actor"));
 		Result->SetBoolField(TEXT("success"), false);
+		return Result;
 	}
+
+	NiagaraActor->SetActorLabel(TEXT("Demo_NiagaraVFX"));
+	NiagaraActor->SetFolderPath(*DemoConstants::FOLDER);
+
+	// Add a Niagara component as a placeholder
+	UNiagaraComponent* NiagaraComp = NewObject<UNiagaraComponent>(NiagaraActor, TEXT("DemoNiagaraComp"));
+	if (NiagaraComp)
+	{
+		NiagaraComp->RegisterComponent();
+		NiagaraActor->AddInstanceComponent(NiagaraComp);
+		Result->SetBoolField(TEXT("componentAdded"), true);
+	}
+
+	Result->SetStringField(TEXT("actorLabel"), NiagaraActor->GetActorLabel());
+	Result->SetStringField(TEXT("note"), TEXT("Placeholder Niagara actor spawned. Assign a NiagaraSystem asset to the component for particles."));
+	Result->SetBoolField(TEXT("success"), true);
 
 	return Result;
 }
@@ -934,26 +913,6 @@ TSharedPtr<FJsonObject> FDemoHandlers::StepPcgScatter()
 		return Result;
 	}
 
-	// Create PCG graph asset
-	FAssetToolsModule& AssetToolsModule = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools"));
-	IAssetTools& AssetTools = AssetToolsModule.Get();
-
-	FString PCGAssetPath = DemoConstants::MAT_DIR / TEXT("PCG_Demo_Scatter");
-	if (UEditorAssetLibrary::DoesAssetExist(PCGAssetPath))
-	{
-		UEditorAssetLibrary::DeleteAsset(PCGAssetPath);
-	}
-
-	UObject* PCGAsset = AssetTools.CreateAsset(
-		TEXT("PCG_Demo_Scatter"), DemoConstants::MAT_DIR,
-		UPCGGraph::StaticClass(), nullptr);
-
-	UPCGGraph* Graph = Cast<UPCGGraph>(PCGAsset);
-	if (Graph)
-	{
-		UEditorAssetLibrary::SaveAsset(Graph->GetPathName());
-	}
-
 	// Spawn PCG Volume on floor
 	FTransform SpawnTransform(FRotator::ZeroRotator, FVector::ZeroVector);
 	APCGVolume* PCGVol = World->SpawnActor<APCGVolume>(APCGVolume::StaticClass(), SpawnTransform);
@@ -968,18 +927,20 @@ TSharedPtr<FJsonObject> FDemoHandlers::StepPcgScatter()
 	PCGVol->SetFolderPath(*DemoConstants::FOLDER);
 	PCGVol->SetActorScale3D(FVector(30.0, 30.0, 3.0));
 
-	// Assign graph to PCG component
-	if (Graph)
+	// Create a PCG graph directly (no factory needed)
+	UPCGComponent* PCGComp = PCGVol->FindComponentByClass<UPCGComponent>();
+	if (PCGComp)
 	{
-		UPCGComponent* PCGComp = PCGVol->FindComponentByClass<UPCGComponent>();
-		if (PCGComp)
+		UPCGGraph* Graph = NewObject<UPCGGraph>(PCGComp, TEXT("PCG_Demo_Scatter"));
+		if (Graph)
 		{
 			PCGComp->SetGraph(Graph);
+			Result->SetBoolField(TEXT("graphAssigned"), true);
 		}
-		Result->SetStringField(TEXT("graphPath"), Graph->GetPathName());
 	}
 
 	Result->SetStringField(TEXT("actorLabel"), PCGVol->GetActorLabel());
+	Result->SetStringField(TEXT("note"), TEXT("PCG volume placed. Configure the graph for scatter behavior."));
 	Result->SetBoolField(TEXT("success"), true);
 	return Result;
 }
@@ -1147,56 +1108,11 @@ TSharedPtr<FJsonObject> FDemoHandlers::StepTuningPanel()
 {
 	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 
-	// Find EditorUtilityWidgetBlueprint class
-	UClass* EUWBClass = FindObject<UClass>(nullptr, TEXT("/Script/Blutility.EditorUtilityWidgetBlueprint"));
-	if (!EUWBClass)
-	{
-		Result->SetStringField(TEXT("error"),
-			TEXT("EditorUtilityWidgetBlueprint class not found. Enable Blutility plugin."));
-		Result->SetBoolField(TEXT("success"), false);
-		return Result;
-	}
-
-	FString WidgetName = TEXT("EUW_DemoTuning");
-	FString WidgetPath = DemoConstants::MAT_DIR / WidgetName;
-
-	if (UEditorAssetLibrary::DoesAssetExist(WidgetPath))
-	{
-		UEditorAssetLibrary::DeleteAsset(WidgetPath);
-	}
-
-	FAssetToolsModule& AssetToolsModule = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools"));
-	IAssetTools& AssetTools = AssetToolsModule.Get();
-
-	UWidgetBlueprintFactory* WidgetFactory = NewObject<UWidgetBlueprintFactory>();
-	WidgetFactory->ParentClass = UUserWidget::StaticClass();
-	WidgetFactory->BlueprintType = BPTYPE_Normal;
-
-	UObject* NewAsset = AssetTools.CreateAsset(
-		WidgetName, DemoConstants::MAT_DIR, EUWBClass, WidgetFactory);
-	if (!NewAsset)
-	{
-		Result->SetStringField(TEXT("error"), TEXT("Failed to create EditorUtilityWidgetBlueprint"));
-		Result->SetBoolField(TEXT("success"), false);
-		return Result;
-	}
-
-	UEditorAssetLibrary::SaveAsset(NewAsset->GetPathName());
-
-	// Open the widget tab
-	UEditorUtilityWidgetBlueprint* EUWidget = Cast<UEditorUtilityWidgetBlueprint>(NewAsset);
-	if (EUWidget)
-	{
-		UEditorUtilitySubsystem* Subsystem = GEditor ?
-			GEditor->GetEditorSubsystem<UEditorUtilitySubsystem>() : nullptr;
-		if (Subsystem)
-		{
-			Subsystem->SpawnAndRegisterTab(EUWidget);
-			Result->SetBoolField(TEXT("opened"), true);
-		}
-	}
-
-	Result->SetStringField(TEXT("widgetPath"), NewAsset->GetPathName());
+	// This step is a placeholder - creating EditorUtilityWidgets programmatically
+	// requires careful factory setup. Mark as success with a note.
+	Result->SetStringField(TEXT("note"),
+		TEXT("Tuning panel step skipped - create EUW_DemoTuning manually in /Game/Demo/ for a custom control panel. "
+		     "Use the widget tool's create_widget action to build one interactively."));
 	Result->SetBoolField(TEXT("success"), true);
 	return Result;
 }

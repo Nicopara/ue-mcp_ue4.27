@@ -3,6 +3,10 @@
     "kantext": {
       "command": "c:\\Users\\david\\Projects\\UE\\Vale\\kantext-mcp-windows-x86_64.exe",
       "args": ["--workspace", "C:\\Users\\david\\Projects\\UE\\ue-mcp"]
+    },
+    "ue-mcp": {
+      "command": "node",
+      "args": ["C:\\Users\\david\\Projects\\UE\\ue-mcp\\dist\\index.js"]
     }
   }
 }
