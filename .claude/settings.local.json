@@ -18,7 +18,10 @@
       "mcp__ue-mcp__demo",
       "mcp__ue-mcp__asset",
       "mcp__ue-mcp__niagara",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "mcp__ue-mcp__level",
+      "mcp__ue-mcp__editor",
+      "Bash(cd:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

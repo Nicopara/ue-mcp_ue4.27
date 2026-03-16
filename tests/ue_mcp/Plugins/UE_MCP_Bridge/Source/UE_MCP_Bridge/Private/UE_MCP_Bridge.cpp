@@ -4,6 +4,7 @@
 #include "Handlers/DialogHandlers.h"
 #include "Misc/ConfigCacheIni.h"
 
+DEFINE_LOG_CATEGORY(LogMCPBridge);
 IMPLEMENT_MODULE(FUE_MCP_BridgeModule, UE_MCP_Bridge)
 
 static TSharedPtr<FMCPBridgeServer> G_BridgeServer;
@@ -16,11 +17,11 @@ void FUE_MCP_BridgeModule::StartupModule()
 
 	if (G_BridgeServer->Start())
 	{
-		UE_LOG(LogTemp, Log, TEXT("[UE-MCP] Bridge server started on port 9877"));
+		UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] Bridge server started on port 9877"));
 	}
 	else
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[UE-MCP] Failed to start bridge server"));
+		UE_LOG(LogMCPBridge, Warning, TEXT("[UE-MCP] Failed to start bridge server"));
 	}
 }
 
@@ -33,6 +34,6 @@ void FUE_MCP_BridgeModule::ShutdownModule()
 	{
 		G_BridgeServer->Shutdown();
 		G_BridgeServer.Reset();
-		UE_LOG(LogTemp, Log, TEXT("[UE-MCP] Bridge server stopped"));
+		UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] Bridge server stopped"));
 	}
 }

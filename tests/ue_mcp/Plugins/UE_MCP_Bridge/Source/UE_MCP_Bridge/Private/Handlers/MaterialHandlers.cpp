@@ -1,4 +1,5 @@
 #include "MaterialHandlers.h"
+#include "UE_MCP_BridgeModule.h"
 #include "HandlerRegistry.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -201,7 +202,7 @@ TSharedPtr<FJsonValue> FMaterialHandlers::CreateMaterial(const TSharedPtr<FJsonO
 	FString PackagePath = TEXT("/Game/Materials");
 	Params->TryGetStringField(TEXT("packagePath"), PackagePath);
 
-	UE_LOG(LogTemp, Log, TEXT("[UE-MCP] CreateMaterial: name=%s packagePath=%s"), *Name, *PackagePath);
+	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] CreateMaterial: name=%s packagePath=%s"), *Name, *PackagePath);
 
 	FAssetToolsModule& AssetToolsModule = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools"));
 	IAssetTools& AssetTools = AssetToolsModule.Get();
@@ -584,7 +585,7 @@ TSharedPtr<FJsonValue> FMaterialHandlers::RecompileMaterial(const TSharedPtr<FJs
 		return MakeShared<FJsonValueObject>(Result);
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("[UE-MCP] Recompiling material: %s"), *MaterialPath);
+	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] Recompiling material: %s"), *MaterialPath);
 
 	Material->PreEditChange(nullptr);
 	Material->PostEditChange();
@@ -635,7 +636,7 @@ TSharedPtr<FJsonValue> FMaterialHandlers::CreateMaterialInstance(const TSharedPt
 		return MakeShared<FJsonValueObject>(Result);
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("[UE-MCP] CreateMaterialInstance: name=%s parent=%s packagePath=%s"), *Name, *ParentPath, *PackagePath);
+	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] CreateMaterialInstance: name=%s parent=%s packagePath=%s"), *Name, *ParentPath, *PackagePath);
 
 	FAssetToolsModule& AssetToolsModule = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools"));
 	IAssetTools& AssetTools = AssetToolsModule.Get();
@@ -1391,7 +1392,7 @@ TSharedPtr<FJsonValue> FMaterialHandlers::CreateMaterialFromTexture(const TShare
 		return MakeShared<FJsonValueObject>(Result);
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("[UE-MCP] CreateMaterialFromTexture: texture=%s materialName=%s packagePath=%s"), *TexturePath, *MaterialName, *PackagePath);
+	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] CreateMaterialFromTexture: texture=%s materialName=%s packagePath=%s"), *TexturePath, *MaterialName, *PackagePath);
 
 	// Create the material
 	FAssetToolsModule& AssetToolsModule = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools"));

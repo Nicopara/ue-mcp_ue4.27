@@ -1,4 +1,5 @@
 #include "DialogHandlers.h"
+#include "UE_MCP_BridgeModule.h"
 #include "HandlerRegistry.h"
 #include "Misc/CoreDelegates.h"
 #include "Framework/Application/SlateApplication.h"
@@ -31,7 +32,7 @@ void FDialogHandlers::InstallDialogHook()
 	// For now, we skip the hook — dialog listing/responding still works via Slate.
 	bHookInstalled = true;
 
-	UE_LOG(LogTemp, Log, TEXT("[UE-MCP] Dialog hook installed"));
+	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] Dialog hook installed"));
 }
 
 void FDialogHandlers::RemoveDialogHook()
@@ -44,7 +45,7 @@ void FDialogHandlers::RemoveDialogHook()
 	bHookInstalled = false;
 	Policies.Empty();
 
-	UE_LOG(LogTemp, Log, TEXT("[UE-MCP] Dialog hook removed"));
+	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] Dialog hook removed"));
 }
 
 EAppReturnType::Type FDialogHandlers::HandleModalDialog(EAppMsgType::Type MsgType, const FText& Text, const FText& Title)
@@ -57,14 +58,14 @@ EAppReturnType::Type FDialogHandlers::HandleModalDialog(EAppMsgType::Type MsgTyp
 	{
 		if (MessageStr.Contains(Policy.Pattern) || TitleStr.Contains(Policy.Pattern))
 		{
-			UE_LOG(LogTemp, Log, TEXT("[UE-MCP] Dialog auto-responded: pattern='%s' title='%s' response=%s"),
+			UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] Dialog auto-responded: pattern='%s' title='%s' response=%s"),
 				*Policy.Pattern, *TitleStr, *ResponseTypeToString(Policy.Response));
 			return Policy.Response;
 		}
 	}
 
 	// No policy matched — fall through to default UE behavior
-	UE_LOG(LogTemp, Log, TEXT("[UE-MCP] Dialog shown (no policy match): title='%s' message='%s'"),
+	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] Dialog shown (no policy match): title='%s' message='%s'"),
 		*TitleStr, *MessageStr.Left(200));
 
 	// Return the "default" response based on message type

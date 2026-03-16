@@ -922,22 +922,37 @@ TSharedPtr<FJsonObject> FDemoHandlers::StepNiagaraVfx()
 	UNiagaraSystemFactoryNew::InitializeSystem(NiagaraSys, true);
 	UEditorAssetLibrary::SaveAsset(NiagaraSys->GetPathName());
 
-	// Spawn the system in the world above the hero sphere
-	UNiagaraComponent* SpawnedComp = UNiagaraFunctionLibrary::SpawnSystemAtLocation(
-		World, NiagaraSys,
-		FVector(0.0, 0.0, 380.0),
-		FRotator::ZeroRotator,
-		FVector::OneVector,
-		false // persistent, not auto-destroy
-	);
-
-	if (SpawnedComp && SpawnedComp->GetOwner())
+	// Spawn a dedicated actor and attach a NiagaraComponent with the system
+	FTransform SpawnTransform(FRotator::ZeroRotator, FVector(0.0, 0.0, 380.0));
+	AActor* NiagaraActor = World->SpawnActor<AActor>(AActor::StaticClass(), SpawnTransform);
+	if (!NiagaraActor)
 	{
-		SpawnedComp->GetOwner()->SetActorLabel(TEXT("Demo_NiagaraVFX"));
-		SpawnedComp->GetOwner()->SetFolderPath(*DemoConstants::FOLDER);
-		Result->SetStringField(TEXT("actorLabel"), SpawnedComp->GetOwner()->GetActorLabel());
+		Result->SetStringField(TEXT("error"), TEXT("Failed to spawn Niagara actor"));
+		Result->SetBoolField(TEXT("success"), false);
+		return Result;
 	}
 
+	NiagaraActor->SetActorLabel(TEXT("Demo_NiagaraVFX"));
+	NiagaraActor->SetFolderPath(*DemoConstants::FOLDER);
+
+	// Create and register a scene root so the Niagara component has something to attach to
+	USceneComponent* SceneRoot = NewObject<USceneComponent>(NiagaraActor, TEXT("DefaultSceneRoot"));
+	SceneRoot->RegisterComponent();
+	NiagaraActor->SetRootComponent(SceneRoot);
+	NiagaraActor->AddInstanceComponent(SceneRoot);
+
+	// Create the Niagara component with our system asset
+	UNiagaraComponent* NiagaraComp = NewObject<UNiagaraComponent>(NiagaraActor, TEXT("DemoNiagaraComp"));
+	NiagaraComp->SetAsset(NiagaraSys);
+	NiagaraComp->SetAutoActivate(true);
+	NiagaraComp->RegisterComponent();
+	NiagaraComp->AttachToComponent(SceneRoot, FAttachmentTransformRules::KeepRelativeTransform);
+	NiagaraActor->AddInstanceComponent(NiagaraComp);
+
+	// Activate the component to start emitting
+	NiagaraComp->Activate(true);
+
+	Result->SetStringField(TEXT("actorLabel"), NiagaraActor->GetActorLabel());
 	Result->SetStringField(TEXT("assetPath"), NiagaraSys->GetPathName());
 	Result->SetBoolField(TEXT("success"), true);
 	return Result;
@@ -1007,6 +1022,37 @@ TSharedPtr<FJsonObject> FDemoHandlers::StepOrbitRings()
 	const float Height = 280.0f;
 	const int32 NumOrbs = 8;
 
+	// Spawn an invisible pivot actor at the hero sphere's height — all orbs attach to this
+	FTransform PivotTransform(FRotator::ZeroRotator, FVector(0.0, 0.0, 0.0));
+	AActor* PivotActor = World->SpawnActor<AActor>(AActor::StaticClass(), PivotTransform);
+	if (!PivotActor)
+	{
+		Result->SetStringField(TEXT("error"), TEXT("Failed to spawn orbit pivot"));
+		Result->SetBoolField(TEXT("success"), false);
+		return Result;
+	}
+	PivotActor->SetActorLabel(TEXT("Demo_OrbitPivot"));
+	PivotActor->SetFolderPath(*DemoConstants::FOLDER);
+
+	// Give it a scene root and make it movable
+	USceneComponent* PivotRoot = NewObject<USceneComponent>(PivotActor, TEXT("PivotRoot"));
+	PivotRoot->SetMobility(EComponentMobility::Movable);
+	PivotRoot->RegisterComponent();
+	PivotActor->SetRootComponent(PivotRoot);
+	PivotActor->AddInstanceComponent(PivotRoot);
+
+	// Add RotatingMovementComponent to the pivot
+	URotatingMovementComponent* RotComp = NewObject<URotatingMovementComponent>(
+		PivotActor, TEXT("DemoRotation"));
+	if (RotComp)
+	{
+		RotComp->RotationRate = FRotator(0.0, 45.0, 0.0);
+		RotComp->RegisterComponent();
+		PivotActor->AddInstanceComponent(RotComp);
+		Result->SetBoolField(TEXT("rotationAdded"), true);
+	}
+
+	// Spawn orbs and attach them to the pivot
 	TArray<TSharedPtr<FJsonValue>> Labels;
 	for (int32 i = 0; i < NumOrbs; ++i)
 	{
@@ -1021,32 +1067,14 @@ TSharedPtr<FJsonObject> FDemoHandlers::StepOrbitRings()
 			FVector(0.2, 0.2, 0.2));
 		if (Orb)
 		{
+			// Make movable so it can be attached and rotate
+			if (Orb->GetRootComponent())
+			{
+				Orb->GetRootComponent()->SetMobility(EComponentMobility::Movable);
+			}
+			Orb->AttachToActor(PivotActor, FAttachmentTransformRules::KeepWorldTransform);
 			ApplyMat(Orb, GlowMat);
 			Labels.Add(MakeShared<FJsonValueString>(Orb->GetActorLabel()));
-		}
-	}
-
-	// Add RotatingMovementComponent to the hero sphere
-	AActor* HeroSphere = nullptr;
-	for (TActorIterator<AActor> It(World); It; ++It)
-	{
-		if ((*It)->GetActorLabel() == TEXT("Demo_HeroSphere"))
-		{
-			HeroSphere = *It;
-			break;
-		}
-	}
-
-	if (HeroSphere)
-	{
-		URotatingMovementComponent* RotComp = NewObject<URotatingMovementComponent>(
-			HeroSphere, TEXT("DemoRotation"));
-		if (RotComp)
-		{
-			RotComp->RotationRate = FRotator(0.0, 45.0, 0.0);
-			RotComp->RegisterComponent();
-			HeroSphere->AddInstanceComponent(RotComp);
-			Result->SetBoolField(TEXT("rotationAdded"), true);
 		}
 	}
 

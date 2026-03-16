@@ -1,4 +1,5 @@
 #include "GasHandlers.h"
+#include "UE_MCP_BridgeModule.h"
 #include "HandlerRegistry.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Engine/Blueprint.h"
@@ -38,7 +39,7 @@ TSharedPtr<FJsonValue> FGasHandlers::CreateGameplayEffect(const TSharedPtr<FJson
 		return MakeShared<FJsonValueObject>(Result);
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("[UE-MCP] CreateGameplayEffect called with name: %s"), *Name);
+	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] CreateGameplayEffect called with name: %s"), *Name);
 
 	FString PackagePath = TEXT("/Game/GAS/Effects");
 	Params->TryGetStringField(TEXT("packagePath"), PackagePath);

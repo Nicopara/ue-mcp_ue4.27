@@ -62,6 +62,7 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("build_all"), &BuildAll);
 	Registry.RegisterHandler(TEXT("validate_assets"), &ValidateAssets);
 	Registry.RegisterHandler(TEXT("cook_content"), &CookContent);
+	Registry.RegisterHandler(TEXT("focus_viewport_on_actor"), &FocusViewportOnActor);
 }
 
 TSharedPtr<FJsonValue> FEditorHandlers::ExecuteCommand(const TSharedPtr<FJsonObject>& Params)
@@ -1184,6 +1185,90 @@ TSharedPtr<FJsonValue> FEditorHandlers::CookContent(const TSharedPtr<FJsonObject
 	Result->SetStringField(TEXT("platform"), Platform);
 	Result->SetStringField(TEXT("command"), Command);
 	Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Cook triggered for %s"), *Platform));
+	Result->SetBoolField(TEXT("success"), true);
+
+	return MakeShared<FJsonValueObject>(Result);
+}
+
+TSharedPtr<FJsonValue> FEditorHandlers::FocusViewportOnActor(const TSharedPtr<FJsonObject>& Params)
+{
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+	FString ActorLabel;
+	if (!Params->TryGetStringField(TEXT("actorLabel"), ActorLabel))
+	{
+		Result->SetStringField(TEXT("error"), TEXT("Missing 'actorLabel' parameter"));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+	if (!World)
+	{
+		Result->SetStringField(TEXT("error"), TEXT("Editor world not available"));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	// Find the actor by label
+	AActor* TargetActor = nullptr;
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		if ((*It)->GetActorLabel() == ActorLabel)
+		{
+			TargetActor = *It;
+			break;
+		}
+	}
+
+	if (!TargetActor)
+	{
+		Result->SetStringField(TEXT("error"), FString::Printf(TEXT("Actor '%s' not found"), *ActorLabel));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	// Get the viewport client
+	FLevelEditorViewportClient* ViewportClient = GCurrentLevelEditingViewportClient;
+	if (!ViewportClient)
+	{
+		const TArray<FLevelEditorViewportClient*>& ViewportClients = GEditor->GetLevelViewportClients();
+		if (ViewportClients.Num() > 0)
+		{
+			ViewportClient = ViewportClients[0];
+		}
+	}
+
+	if (!ViewportClient)
+	{
+		Result->SetStringField(TEXT("error"), TEXT("No viewport client available"));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	// Focus on the actor's bounding box
+	FBox ActorBounds = TargetActor->GetComponentsBoundingBox(true);
+	if (ActorBounds.IsValid)
+	{
+		ViewportClient->FocusViewportOnBox(ActorBounds);
+	}
+	else
+	{
+		// Fallback: just move the camera to the actor's location
+		FVector ActorLocation = TargetActor->GetActorLocation();
+		FVector CameraOffset(0.0, -500.0, 200.0);
+		ViewportClient->SetViewLocation(ActorLocation + CameraOffset);
+		FRotator LookAt = (ActorLocation - (ActorLocation + CameraOffset)).Rotation();
+		ViewportClient->SetViewRotation(LookAt);
+	}
+
+	FVector FinalLocation = ViewportClient->GetViewLocation();
+	TSharedPtr<FJsonObject> LocObj = MakeShared<FJsonObject>();
+	LocObj->SetNumberField(TEXT("x"), FinalLocation.X);
+	LocObj->SetNumberField(TEXT("y"), FinalLocation.Y);
+	LocObj->SetNumberField(TEXT("z"), FinalLocation.Z);
+	Result->SetObjectField(TEXT("viewLocation"), LocObj);
+	Result->SetStringField(TEXT("actorLabel"), ActorLabel);
 	Result->SetBoolField(TEXT("success"), true);
 
 	return MakeShared<FJsonValueObject>(Result);

@@ -1,4 +1,5 @@
 #include "BridgeServer.h"
+#include "UE_MCP_BridgeModule.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "Serialization/JsonSerializer.h"
@@ -127,14 +128,14 @@ bool FMCPBridgeServer::Init()
 
 uint32 FMCPBridgeServer::Run()
 {
-	UE_LOG(LogTemp, Log, TEXT("[UE-MCP] Bridge server thread started on port %d"), ServerPort);
+	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] Bridge server thread started on port %d"), ServerPort);
 	
 	// Initialize platform sockets
 #if PLATFORM_WINDOWS
 	WSADATA WsaData;
 	if (WSAStartup(MAKEWORD(2, 2), &WsaData) != 0)
 	{
-		UE_LOG(LogTemp, Error, TEXT("[UE-MCP] Failed to initialize Winsock"));
+		UE_LOG(LogMCPBridge, Error, TEXT("[UE-MCP] Failed to initialize Winsock"));
 		return 1;
 	}
 #endif
@@ -148,7 +149,7 @@ uint32 FMCPBridgeServer::Run()
 	if (ServerSocketFD < 0)
 #endif
 	{
-		UE_LOG(LogTemp, Error, TEXT("[UE-MCP] Failed to create socket"));
+		UE_LOG(LogMCPBridge, Error, TEXT("[UE-MCP] Failed to create socket"));
 #if PLATFORM_WINDOWS
 		WSACleanup();
 #endif
@@ -175,11 +176,11 @@ uint32 FMCPBridgeServer::Run()
 		int32 ErrorCode = 0;
 #if PLATFORM_WINDOWS
 		ErrorCode = WSAGetLastError();
-		UE_LOG(LogTemp, Error, TEXT("[UE-MCP] Failed to bind socket to port %d, error: %d"), ServerPort, ErrorCode);
+		UE_LOG(LogMCPBridge, Error, TEXT("[UE-MCP] Failed to bind socket to port %d, error: %d"), ServerPort, ErrorCode);
 		closesocket(ServerSocketFD);
 		WSACleanup();
 #else
-		UE_LOG(LogTemp, Error, TEXT("[UE-MCP] Failed to bind socket to port %d"), ServerPort);
+		UE_LOG(LogMCPBridge, Error, TEXT("[UE-MCP] Failed to bind socket to port %d"), ServerPort);
 		close(ServerSocketFD);
 #endif
 		return 1;
@@ -191,17 +192,17 @@ uint32 FMCPBridgeServer::Run()
 		int32 ErrorCode = 0;
 #if PLATFORM_WINDOWS
 		ErrorCode = WSAGetLastError();
-		UE_LOG(LogTemp, Error, TEXT("[UE-MCP] Failed to listen on socket, error: %d"), ErrorCode);
+		UE_LOG(LogMCPBridge, Error, TEXT("[UE-MCP] Failed to listen on socket, error: %d"), ErrorCode);
 		closesocket(ServerSocketFD);
 		WSACleanup();
 #else
-		UE_LOG(LogTemp, Error, TEXT("[UE-MCP] Failed to listen on socket"));
+		UE_LOG(LogMCPBridge, Error, TEXT("[UE-MCP] Failed to listen on socket"));
 		close(ServerSocketFD);
 #endif
 		return 1;
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("[UE-MCP] Bridge listening on ws://localhost:%d"), ServerPort);
+	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] Bridge listening on ws://localhost:%d"), ServerPort);
 	bIsRunning = true;
 
 	// Accept connections
@@ -233,7 +234,7 @@ uint32 FMCPBridgeServer::Run()
 			if (ClientSocketFD >= 0)
 			{
 #endif
-			UE_LOG(LogTemp, Log, TEXT("[UE-MCP] Client connected from %s:%d"), 
+			UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] Client connected from %s:%d"), 
 				ANSI_TO_TCHAR(inet_ntoa(ClientAddr.sin_addr)), ntohs(ClientAddr.sin_port));
 				
 				// Handle each WebSocket connection in its own thread
@@ -336,7 +337,7 @@ FString FMCPBridgeServer::ProcessMessage(const FString& Message)
 		return CreateJsonRpcError(Request, -32600, TEXT("Invalid Request"));
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("[UE-MCP] Processing method: %s"), *Method);
+	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] Processing method: %s"), *Method);
 
 	TSharedPtr<FJsonObject> Params;
 	if (Request->HasField(TEXT("params")))
@@ -413,10 +414,10 @@ void FMCPBridgeServer::HandleWebSocketConnection(int32 ClientSocketFD)
 			int32 ErrorCode = 0;
 #if PLATFORM_WINDOWS
 			ErrorCode = WSAGetLastError();
-			UE_LOG(LogTemp, Error, TEXT("[UE-MCP] Failed to send WebSocket handshake response, error: %d"), ErrorCode);
+			UE_LOG(LogMCPBridge, Error, TEXT("[UE-MCP] Failed to send WebSocket handshake response, error: %d"), ErrorCode);
 			closesocket(ClientSocketFD);
 #else
-			UE_LOG(LogTemp, Error, TEXT("[UE-MCP] Failed to send WebSocket handshake response"));
+			UE_LOG(LogMCPBridge, Error, TEXT("[UE-MCP] Failed to send WebSocket handshake response"));
 			close(ClientSocketFD);
 #endif
 			return;
@@ -424,15 +425,15 @@ void FMCPBridgeServer::HandleWebSocketConnection(int32 ClientSocketFD)
 		SentBytes += BytesSent;
 	}
 	
-	UE_LOG(LogTemp, Log, TEXT("[UE-MCP] Sent WebSocket handshake response (%d/%d bytes)"), SentBytes, TotalBytes);
+	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] Sent WebSocket handshake response (%d/%d bytes)"), SentBytes, TotalBytes);
 	
 	// Small delay to ensure response is fully sent and received by client
 	FPlatformProcess::Sleep(0.01f); // 10ms
 	
 	// Process WebSocket messages
-	UE_LOG(LogTemp, Log, TEXT("[UE-MCP] Starting WebSocket message processing"));
+	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] Starting WebSocket message processing"));
 	ProcessWebSocketMessages(ClientSocketFD);
-	UE_LOG(LogTemp, Log, TEXT("[UE-MCP] WebSocket message processing ended"));
+	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] WebSocket message processing ended"));
 
 #if PLATFORM_WINDOWS
 	closesocket(ClientSocketFD);
@@ -471,7 +472,7 @@ FString FMCPBridgeServer::PerformWebSocketHandshake(int32 ClientSocketFD)
 		}
 	}
 	
-	UE_LOG(LogTemp, Log, TEXT("[UE-MCP] Extracted WebSocket-Key: %s"), *WebSocketKey);
+	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] Extracted WebSocket-Key: %s"), *WebSocketKey);
 
 	if (WebSocketKey.IsEmpty())
 	{
@@ -493,8 +494,8 @@ FString FMCPBridgeServer::PerformWebSocketHandshake(int32 ClientSocketFD)
 	Response += FString::Printf(TEXT("Sec-WebSocket-Accept: %s\r\n"), *AcceptKey);
 	Response += TEXT("\r\n");
 	
-	UE_LOG(LogTemp, Log, TEXT("[UE-MCP] Accept key: %s"), *AcceptKey);
-	UE_LOG(LogTemp, Log, TEXT("[UE-MCP] Response length: %d chars"), Response.Len());
+	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] Accept key: %s"), *AcceptKey);
+	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] Response length: %d chars"), Response.Len());
 
 	return Response;
 }
@@ -522,7 +523,7 @@ FString FMCPBridgeServer::ReadHttpRequest(int32 SocketFD)
 	int32 SelectResult = select(SocketFD + 1, &ReadSet, nullptr, nullptr, &Timeout);
 	if (SelectResult <= 0 || !FD_ISSET(SocketFD, &ReadSet))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[UE-MCP] Timeout waiting for HTTP request"));
+		UE_LOG(LogMCPBridge, Warning, TEXT("[UE-MCP] Timeout waiting for HTTP request"));
 		return TEXT("");
 	}
 	
@@ -530,14 +531,14 @@ FString FMCPBridgeServer::ReadHttpRequest(int32 SocketFD)
 	int32 BytesReceived = recv(SocketFD, (char*)Buffer.GetData(), Buffer.Num(), 0);
 	if (BytesReceived <= 0)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[UE-MCP] Failed to read HTTP request"));
+		UE_LOG(LogMCPBridge, Warning, TEXT("[UE-MCP] Failed to read HTTP request"));
 		return TEXT("");
 	}
 	
 	Buffer.SetNum(BytesReceived);
 	Request = FString(ANSI_TO_TCHAR((char*)Buffer.GetData()));
 	
-	UE_LOG(LogTemp, Log, TEXT("[UE-MCP] Read HTTP request (%d bytes):\n%s"), BytesReceived, *Request.Left(200));
+	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] Read HTTP request (%d bytes):\n%s"), BytesReceived, *Request.Left(200));
 	
 	return Request;
 }

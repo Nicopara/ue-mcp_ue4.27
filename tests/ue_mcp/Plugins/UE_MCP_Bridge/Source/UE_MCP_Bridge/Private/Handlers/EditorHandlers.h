@@ -38,4 +38,5 @@ private:
 	static TSharedPtr<FJsonValue> BuildAll(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> ValidateAssets(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> CookContent(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> FocusViewportOnActor(const TSharedPtr<FJsonObject>& Params);
 };
