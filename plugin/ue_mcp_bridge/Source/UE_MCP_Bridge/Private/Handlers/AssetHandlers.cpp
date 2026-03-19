@@ -67,6 +67,9 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("get_texture_info"), &ListTextureProperties);
 	Registry.RegisterHandler(TEXT("set_texture_settings"), &SetTextureProperties);
 
+	// Mesh material handlers
+	Registry.RegisterHandler(TEXT("set_mesh_material"), &SetMeshMaterial);
+
 	// Additional DataTable handlers
 	Registry.RegisterHandler(TEXT("create_datatable"), &CreateDataTable);
 	Registry.RegisterHandler(TEXT("read_datatable"), &ReadDataTable);
@@ -1244,6 +1247,63 @@ TSharedPtr<FJsonValue> FAssetHandlers::SetTextureProperties(const TSharedPtr<FJs
 	Result->SetStringField(TEXT("assetPath"), AssetPath);
 	Result->SetArrayField(TEXT("modifiedProperties"), ModifiedArray);
 	Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Modified %d texture properties"), ModifiedProperties.Num()));
+	Result->SetBoolField(TEXT("success"), true);
+
+	return MakeShared<FJsonValueObject>(Result);
+}
+
+TSharedPtr<FJsonValue> FAssetHandlers::SetMeshMaterial(const TSharedPtr<FJsonObject>& Params)
+{
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+	FString AssetPath;
+	if ((!Params->TryGetStringField(TEXT("assetPath"), AssetPath) && !Params->TryGetStringField(TEXT("path"), AssetPath)) || AssetPath.IsEmpty())
+	{
+		Result->SetStringField(TEXT("error"), TEXT("Missing or empty 'assetPath' parameter (static mesh path)"));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	FString MaterialPath;
+	if (!Params->TryGetStringField(TEXT("materialPath"), MaterialPath) || MaterialPath.IsEmpty())
+	{
+		Result->SetStringField(TEXT("error"), TEXT("Missing or empty 'materialPath' parameter"));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	int32 SlotIndex = 0;
+	Params->TryGetNumberField(TEXT("slotIndex"), SlotIndex);
+
+	UStaticMesh* Mesh = Cast<UStaticMesh>(StaticLoadObject(UStaticMesh::StaticClass(), nullptr, *AssetPath));
+	if (!Mesh)
+	{
+		Result->SetStringField(TEXT("error"), FString::Printf(TEXT("Failed to load static mesh at '%s'"), *AssetPath));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	UMaterialInterface* Material = Cast<UMaterialInterface>(StaticLoadObject(UMaterialInterface::StaticClass(), nullptr, *MaterialPath));
+	if (!Material)
+	{
+		Result->SetStringField(TEXT("error"), FString::Printf(TEXT("Failed to load material at '%s'"), *MaterialPath));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	if (SlotIndex < 0 || SlotIndex >= Mesh->GetStaticMaterials().Num())
+	{
+		Result->SetStringField(TEXT("error"), FString::Printf(TEXT("Slot index %d out of range (mesh has %d slots)"), SlotIndex, Mesh->GetStaticMaterials().Num()));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	Mesh->SetMaterial(SlotIndex, Material);
+	UEditorAssetLibrary::SaveAsset(AssetPath, false);
+
+	Result->SetStringField(TEXT("assetPath"), AssetPath);
+	Result->SetStringField(TEXT("materialPath"), MaterialPath);
+	Result->SetNumberField(TEXT("slotIndex"), SlotIndex);
 	Result->SetBoolField(TEXT("success"), true);
 
 	return MakeShared<FJsonValueObject>(Result);

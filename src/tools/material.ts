@@ -11,6 +11,7 @@ export const materialTool: ToolDef = categoryTool(
     create_instance:   bp("create_material_instance"),
     create:            bp("create_material"),
     set_shading_model: bp("set_material_shading_model"),
+    set_blend_mode:    bp("set_material_blend_mode"),
     set_base_color:    bp("set_material_base_color"),
     connect_texture:   bp("connect_texture_to_material"),
     // Graph authoring
@@ -28,6 +29,7 @@ export const materialTool: ToolDef = categoryTool(
 - create_instance: Create material instance. Params: parentPath, name?, packagePath?
 - create: Create material. Params: name, packagePath?
 - set_shading_model: Set shading model. Params: assetPath, shadingModel
+- set_blend_mode: Set blend mode. Params: assetPath, blendMode (Opaque|Masked|Translucent|Additive|Modulate|AlphaComposite|AlphaHoldout)
 - set_base_color: Set base color. Params: assetPath, color {r,g,b,a?}
 - connect_texture: Connect texture to property. Params: materialPath, texturePath, property
 - add_expression: Add expression node. Params: materialPath, expressionType, x?, y?, properties?
@@ -45,6 +47,7 @@ export const materialTool: ToolDef = categoryTool(
     name: z.string().optional(),
     packagePath: z.string().optional(),
     shadingModel: z.string().optional(),
+    blendMode: z.string().optional().describe("Blend mode: Opaque, Masked, Translucent, Additive, Modulate, AlphaComposite, AlphaHoldout"),
     color: z.object({ r: z.number(), g: z.number(), b: z.number(), a: z.number().optional() }).optional(),
     materialPath: z.string().optional(),
     texturePath: z.string().optional(),

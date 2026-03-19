@@ -63,6 +63,8 @@ export const editorTool: ToolDef = categoryTool(
     get_dialog_policy: bp("get_dialog_policy"),
     list_dialogs: bp("list_dialogs"),
     respond_to_dialog: bp("respond_to_dialog"),
+    // Asset Editor
+    open_asset: bp("open_asset"),
     // Dev
     reload_bridge: bp("reload_handlers"),
   },
@@ -101,6 +103,7 @@ export const editorTool: ToolDef = categoryTool(
 - get_dialog_policy: Get current dialog policies
 - list_dialogs: List active modal dialogs with title, message, and button labels
 - respond_to_dialog: Click a button on the active modal dialog. Params: buttonIndex? or buttonLabel?, action? ('escape')
+- open_asset: Open asset in its editor (e.g. Material Editor, Animation Editor). Params: assetPath
 - reload_bridge: Hot-reload all Python bridge handlers from disk (no editor restart needed)`,
   {
     command: z.string().optional(),
