@@ -452,11 +452,19 @@ async function init() {
   console.log(`  ${BOLD}${CYAN}UE-MCP Setup${RESET}`);
   console.log("");
 
-  // 1. Get project path
+  // 1. Get project path — check CLI arg, then cwd, then ask
   let uprojectPath = process.argv[2] || "";
 
   if (!uprojectPath) {
-    uprojectPath = await askPath();
+    // Auto-detect .uproject in current directory
+    const cwd = process.cwd();
+    const found = fs.readdirSync(cwd).filter((f) => f.endsWith(".uproject"));
+    if (found.length > 0) {
+      uprojectPath = path.join(cwd, found[0]);
+      info(`Found ${found[0]} in current directory`);
+    } else {
+      uprojectPath = await askPath();
+    }
   }
 
   const project = new ProjectContext();
