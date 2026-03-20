@@ -72,7 +72,7 @@ UE-MCP exposes **19 category tools** covering **300+ actions**. Every tool takes
 | `create_function` | Create a function graph | `assetPath`, `functionName` |
 | `delete_function` | Delete a function | `assetPath`, `functionName` |
 | `rename_function` | Rename a function | `assetPath`, `oldName`, `newName` |
-| `add_node` | Add a graph node (K2, AnimGraph, any UEdGraphNode subclass) | `assetPath`, `nodeClass`, `graphName?` |
+| `add_node` | Add a graph node (any UEdGraphNode subclass). Aliases: `CallFunction`, `Event`, `CustomEvent`, `GetVar`, `SetVar`, `Branch`. | `assetPath`, `nodeClass`, `graphName?`, `nodeParams?` |
 | `delete_node` | Remove a node | `assetPath`, `graphName`, `nodeName` |
 | `set_node_property` | Set pin default or struct property (supports dot paths) | `assetPath`, `graphName`, `nodeName`, `propertyName`, `value` |
 | `connect_pins` | Wire two node pins together | `assetPath`, `sourceNode`, `sourcePin`, `targetNode`, `targetPin` |
@@ -87,6 +87,12 @@ UE-MCP exposes **19 category tools** covering **300+ actions**. Every tool takes
 !!! tip "Graph Scripting Workflow"
     `search_node_types` → `add_node` → `connect_pins` is the standard flow for graph scripting.
     For AnimBPs: `list_graphs` → `read_graph` (with `graphName: "AnimGraph"`) → `add_node` (with `nodeClass: "AnimGraphNode_TwoBoneIK"`, etc.) → `connect_pins`.
+
+!!! info "nodeParams by node type"
+    - **CallFunction**: `{functionName, targetClass?}` — targetClass defaults to blueprint's parent class
+    - **Event**: `{eventName, eventClass?}` — with eventClass binds an engine event override; without it creates a custom event
+    - **GetVar / SetVar**: `{variableName}` — references a blueprint variable
+    - Aliases: `memberName`/`memberParent` accepted as alternatives to `functionName`/`targetClass`/`eventClass`
 
 ---
 
