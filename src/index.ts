@@ -124,10 +124,13 @@ async function main() {
   await server.connect(transport);
 }
 
-// Route `ue-mcp init` to the interactive setup
+// Route subcommands
 if (process.argv[2] === "init") {
   process.argv.splice(2, 1);
   import("./init.js");
+} else if (process.argv[2] === "update") {
+  process.argv.splice(2, 1);
+  import("./update.js");
 } else {
   main().catch((e) => {
     console.error(`[ue-mcp] Fatal error: ${e}`);
