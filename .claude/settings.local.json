@@ -41,7 +41,8 @@
       "Bash(rm -rf dist/runtimes dist/so)",
       "Bash(printf '\\\\n\\\\n')",
       "Bash(rm -rf \"C:\\\\Users\\\\david\\\\Projects\\\\UE\\\\Vale\\\\Plugins\\\\UE_MCP_Bridge\")",
-      "Bash(rm -f \"C:\\\\Users\\\\david\\\\Projects\\\\UE\\\\Vale\\\\.ue-mcp.json\")"
+      "Bash(rm -f \"C:\\\\Users\\\\david\\\\Projects\\\\UE\\\\Vale\\\\.ue-mcp.json\")",
+      "Bash(gh issue:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
