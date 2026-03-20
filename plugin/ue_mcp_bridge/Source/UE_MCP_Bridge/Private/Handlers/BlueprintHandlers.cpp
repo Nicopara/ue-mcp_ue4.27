@@ -1986,7 +1986,7 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::SetNodeProperty(const TSharedPtr<FJso
 		return MakeShared<FJsonValueObject>(Result);
 	}
 
-	// Find the pin on the node
+	// First try to find a pin with this name
 	UEdGraphPin* TargetPin = nullptr;
 	for (UEdGraphPin* Pin : TargetNode->Pins)
 	{
@@ -1997,29 +1997,81 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::SetNodeProperty(const TSharedPtr<FJso
 		}
 	}
 
-	if (!TargetPin)
+	bool bSetViaPin = false;
+	bool bSetViaProperty = false;
+
+	if (TargetPin)
 	{
-		// List available pins for better error message
+		// Set pin default value using the graph's own schema
+		const UEdGraphSchema* Schema = TargetGraph->GetSchema();
+		if (Schema)
+		{
+			Schema->TrySetDefaultValue(*TargetPin, DefaultValue);
+			TargetNode->PinDefaultValueChanged(TargetPin);
+			bSetViaPin = true;
+		}
+	}
+
+	if (!bSetViaPin)
+	{
+		// No pin found — try setting as a node property via reflection.
+		// Supports dotted paths like "Node.IKBone.BoneName" for AnimGraph inner structs.
+		TArray<FString> PathParts;
+		PinName.ParseIntoArray(PathParts, TEXT("."));
+
+		UStruct* CurrentStruct = TargetNode->GetClass();
+		void* CurrentContainer = TargetNode;
+		FProperty* FinalProp = nullptr;
+
+		for (int32 i = 0; i < PathParts.Num(); i++)
+		{
+			FProperty* Prop = CurrentStruct->FindPropertyByName(FName(*PathParts[i]));
+			if (!Prop) break;
+
+			if (i < PathParts.Num() - 1)
+			{
+				// Intermediate path segment — drill into struct
+				FStructProperty* StructProp = CastField<FStructProperty>(Prop);
+				if (!StructProp) break;
+				CurrentContainer = StructProp->ContainerPtrToValuePtr<void>(CurrentContainer);
+				CurrentStruct = StructProp->Struct;
+			}
+			else
+			{
+				FinalProp = Prop;
+			}
+		}
+
+		if (FinalProp)
+		{
+			void* ValuePtr = FinalProp->ContainerPtrToValuePtr<void>(CurrentContainer);
+			FinalProp->ImportText_Direct(*DefaultValue, ValuePtr, nullptr, PPF_None);
+			TargetNode->PostEditChange();
+			bSetViaProperty = true;
+		}
+	}
+
+	if (!bSetViaPin && !bSetViaProperty)
+	{
+		// Neither pin nor property found — build a helpful error
 		TArray<FString> PinNames;
 		for (UEdGraphPin* Pin : TargetNode->Pins)
 		{
-			if (Pin)
-			{
-				PinNames.Add(Pin->PinName.ToString());
-			}
+			if (Pin) PinNames.Add(Pin->PinName.ToString());
 		}
-		FString AvailablePins = FString::Join(PinNames, TEXT(", "));
-		Result->SetStringField(TEXT("error"), FString::Printf(TEXT("Pin not found: '%s'. Available pins: [%s]"), *PinName, *AvailablePins));
+
+		TArray<FString> PropNames;
+		for (TFieldIterator<FProperty> It(TargetNode->GetClass()); It; ++It)
+		{
+			PropNames.Add(It->GetName());
+		}
+
+		Result->SetStringField(TEXT("error"), FString::Printf(
+			TEXT("'%s' not found as pin or property. Pins: [%s]. Properties: [%s]"),
+			*PinName, *FString::Join(PinNames, TEXT(", ")), *FString::Join(PropNames, TEXT(", "))));
 		Result->SetBoolField(TEXT("success"), false);
 		return MakeShared<FJsonValueObject>(Result);
 	}
-
-	// Set the default value using the schema
-	const UEdGraphSchema_K2* Schema = GetDefault<UEdGraphSchema_K2>();
-	Schema->TrySetDefaultValue(*TargetPin, DefaultValue);
-
-	// Notify the node that a pin default changed
-	TargetNode->PinDefaultValueChanged(TargetPin);
 
 	// Compile and save
 	FKismetEditorUtilities::CompileBlueprint(Blueprint);
@@ -2036,8 +2088,9 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::SetNodeProperty(const TSharedPtr<FJso
 	Result->SetStringField(TEXT("path"), AssetPath);
 	Result->SetStringField(TEXT("graphName"), GraphName);
 	Result->SetStringField(TEXT("nodeId"), NodeId);
-	Result->SetStringField(TEXT("pinName"), PinName);
-	Result->SetStringField(TEXT("defaultValue"), DefaultValue);
+	Result->SetStringField(TEXT("propertyName"), PinName);
+	Result->SetStringField(TEXT("value"), DefaultValue);
+	Result->SetStringField(TEXT("setVia"), bSetViaPin ? TEXT("pin") : TEXT("property"));
 	Result->SetBoolField(TEXT("success"), true);
 
 	return MakeShared<FJsonValueObject>(Result);

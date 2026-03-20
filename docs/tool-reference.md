@@ -74,7 +74,7 @@ UE-MCP exposes **19 category tools** covering **300+ actions**. Every tool takes
 | `rename_function` | Rename a function | `assetPath`, `oldName`, `newName` |
 | `add_node` | Add a graph node (K2, AnimGraph, any UEdGraphNode subclass) | `assetPath`, `nodeClass`, `graphName?` |
 | `delete_node` | Remove a node | `assetPath`, `graphName`, `nodeName` |
-| `set_node_property` | Set a node property | `assetPath`, `graphName`, `nodeName`, `propertyName`, `value` |
+| `set_node_property` | Set pin default or struct property (supports dot paths) | `assetPath`, `graphName`, `nodeName`, `propertyName`, `value` |
 | `connect_pins` | Wire two node pins together | `assetPath`, `sourceNode`, `sourcePin`, `targetNode`, `targetPin` |
 | `add_component` | Add a component to the BP | `assetPath`, `componentClass` |
 | `compile` | Compile the Blueprint | `assetPath` |

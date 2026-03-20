@@ -41,7 +41,7 @@ export const blueprintTool: ToolDef = categoryTool(
 - rename_function: Rename function. Params: assetPath, oldName, newName
 - add_node: Add graph node (K2, AnimGraph, etc — any UEdGraphNode subclass). Params: assetPath, graphName?, nodeClass, nodeParams?
 - delete_node: Delete node. Params: assetPath, graphName, nodeName
-- set_node_property: Set node property. Params: assetPath, graphName, nodeName, propertyName, value
+- set_node_property: Set node pin default or struct property (supports dot paths like "Node.IKBone.BoneName"). Params: assetPath, graphName, nodeName, propertyName, value
 - connect_pins: Wire nodes. Params: sourceNode, sourcePin, targetNode, targetPin, assetPath, graphName?
 - add_component: Add BP component. Params: assetPath, componentClass, componentName?
 - compile: Compile Blueprint. Params: assetPath
