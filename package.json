@@ -1,9 +1,39 @@
 {
   "name": "ue-mcp",
   "version": "0.4.0-alpha",
-  "description": "Unreal Engine MCP server — 18 tools, 260+ actions for AI-driven editor control",
+  "description": "Unreal Engine MCP server — 19 tools, 300+ actions for AI-driven editor control",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "ue-mcp": "dist/index.js",
+    "ue-mcp-init": "dist/init.js"
+  },
+  "files": [
+    "dist",
+    "plugin",
+    "LICENSE",
+    "README.md"
+  ],
+  "keywords": [
+    "unreal-engine",
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "game-development",
+    "editor",
+    "blueprint",
+    "ue5"
+  ],
+  "author": "David Lyon",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/db-lyon/ue-mcp.git"
+  },
+  "homepage": "https://db-lyon.github.io/ue-mcp/",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "up": "node scripts/run.js",
     "build": "node scripts/build.js",
@@ -28,7 +58,8 @@
     "test:widget": "vitest run tests/smoke/widget.test.ts",
     "test:networking": "vitest run tests/smoke/networking.test.ts",
     "test:gas": "vitest run tests/smoke/gas.test.ts",
-    "test:smoke": "node scripts/smoke-test.js"
+    "test:smoke": "node scripts/smoke-test.js",
+    "prepublishOnly": "npx tsc"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",

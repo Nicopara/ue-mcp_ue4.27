@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -61,7 +62,10 @@ async function main() {
     instructions: SERVER_INSTRUCTIONS,
   });
 
-  for (const tool of ALL_TOOLS) {
+  const disabled = new Set(project.config.disable ?? []);
+  const tools = ALL_TOOLS.filter((t) => !disabled.has(t.name));
+
+  for (const tool of tools) {
     const shape: Record<string, z.ZodType> = {};
     for (const [key, schema] of Object.entries(tool.schema)) {
       shape[key] = schema;
@@ -111,13 +115,22 @@ async function main() {
   }
   bridge.startReconnecting();
 
-  console.error(`[ue-mcp] Registered ${ALL_TOOLS.length} tools (category mega-tools)`);
+  if (disabled.size > 0) {
+    console.error(`[ue-mcp] Disabled categories: ${[...disabled].join(", ")}`);
+  }
+  console.error(`[ue-mcp] Registered ${tools.length} tools (category mega-tools)`);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
 
-main().catch((e) => {
-  console.error(`[ue-mcp] Fatal error: ${e}`);
-  process.exit(1);
-});
+// Route `ue-mcp init` to the interactive setup
+if (process.argv[2] === "init") {
+  process.argv.splice(2, 1);
+  import("./init.js");
+} else {
+  main().catch((e) => {
+    console.error(`[ue-mcp] Fatal error: ${e}`);
+    process.exit(1);
+  });
+}

@@ -35,7 +35,11 @@
       "Bash(gh release:*)",
       "Bash(grep -oP '^\\\\s+\"\"\"\"\\\\K[a-z_]+\\(?=\"\"\"\"\\\\s*:\\)' tests/ue_mcp/Plugins/UE_MCP_Bridge/handlers/*.py)",
       "Bash(gh auth:*)",
-      "Bash(gh secret:*)"
+      "Bash(gh secret:*)",
+      "Bash(npm pack:*)",
+      "Bash(rm -f dist/*.dll dist/*.exe dist/*.pdb dist/*.json dist/createdump*)",
+      "Bash(rm -rf dist/runtimes dist/so)",
+      "Bash(printf '\\\\n\\\\n')"
     ]
   },
   "enableAllProjectMcpServers": true,

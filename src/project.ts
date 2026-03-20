@@ -10,6 +10,8 @@ export interface PluginInfo {
 export interface UeMcpConfig {
   /** Content roots to search by default (e.g. ["/Game/", "/GASP/", "/MyPlugin/"]) */
   contentRoots?: string[];
+  /** Tool categories to disable (e.g. ["gas", "networking", "pcg"]) */
+  disable?: string[];
 }
 
 export class ProjectContext {
