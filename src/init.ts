@@ -358,6 +358,59 @@ function writeMcpConfig(configPath: string, uprojectPath: string): void {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Claude Code hooks                                                  */
+/* ------------------------------------------------------------------ */
+
+interface ClaudeHookEntry {
+  type: string;
+  command: string;
+}
+
+interface ClaudeHookMatcher {
+  matcher: string;
+  hooks: ClaudeHookEntry[];
+}
+
+interface ClaudeSettings {
+  hooks?: Record<string, ClaudeHookMatcher[]>;
+  [key: string]: unknown;
+}
+
+function installClaudeHooks(settingsPath: string): void {
+  let existing: ClaudeSettings = {};
+  if (fs.existsSync(settingsPath)) {
+    try {
+      existing = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
+    } catch {
+      // corrupt — overwrite hooks section only
+    }
+  }
+
+  if (!existing.hooks) existing.hooks = {};
+  if (!existing.hooks.PostToolUse) existing.hooks.PostToolUse = [];
+
+  // Avoid duplicate: check if we already have a ue-mcp hook
+  const already = existing.hooks.PostToolUse.some(
+    (h) => h.matcher === "mcp__ue-mcp__editor",
+  );
+  if (!already) {
+    existing.hooks.PostToolUse.push({
+      matcher: "mcp__ue-mcp__editor",
+      hooks: [
+        {
+          type: "command",
+          command: "npx ue-mcp hook post-tool-use",
+        },
+      ],
+    });
+  }
+
+  const dir = path.dirname(settingsPath);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(settingsPath, JSON.stringify(existing, null, 2));
+}
+
+/* ------------------------------------------------------------------ */
 /*  .ue-mcp.json config                                                */
 /* ------------------------------------------------------------------ */
 
@@ -539,6 +592,7 @@ async function init() {
   // 7. MCP client configuration — interactive
   const clients = detectMcpClients(project.projectDir!);
   const detected = clients.filter((c) => c.detected);
+  let clientStates: boolean[] = [];
 
   if (detected.length > 0) {
     const clientItems: CheckboxItem[] = detected.map((c) => ({
@@ -547,7 +601,7 @@ async function init() {
       suffix: c.configPath,
     }));
 
-    const clientStates = await checkboxSelect(
+    clientStates = await checkboxSelect(
       "Configure MCP clients",
       clientItems,
     );
@@ -574,7 +628,45 @@ async function init() {
     console.log("");
   }
 
-  // 8. Done
+  // 8. Claude Code hooks
+  const configuredClaudeCode = detected.some(
+    (c, i) => c.name.startsWith("Claude Code") && clientStates[i],
+  );
+
+  if (configuredClaudeCode) {
+    console.log("");
+    const hookItems: CheckboxItem[] = [
+      {
+        label: "Allow agents to fall back to execute_python when native tools can't do the job",
+        checked: true,
+        suffix: "Recommended",
+      },
+      {
+        label: "Prompt agents to file a GitHub issue when they resort to Python workarounds",
+        checked: true,
+        suffix: "Recommended",
+      },
+    ];
+
+    const hookStates = await checkboxSelect(
+      "Agent behavior",
+      hookItems,
+    );
+
+    if (hookStates[1]) {
+      // Write hooks to the project-level Claude Code settings
+      const claudeSettingsPath = path.join(
+        project.projectDir!,
+        ".claude",
+        "settings.json",
+      );
+      installClaudeHooks(claudeSettingsPath);
+      ok("Claude Code hooks installed");
+      info(claudeSettingsPath);
+    }
+  }
+
+  // 9. Done
   console.log("");
   console.log(`  ${BOLD}${GREEN}Setup complete!${RESET}`);
   console.log("");

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { categoryTool, bp, type ToolDef, type ToolContext } from "../types.js";
+import { categoryTool, bp, directive, type ToolDef, type ToolContext } from "../types.js";
 import { startEditor, stopEditor, restartEditor } from "../editor-control.js";
 import { pushWorkaround, workaroundCount } from "../workaround-tracker.js";
 
@@ -37,14 +37,26 @@ export const editorTool: ToolDef = categoryTool(
         pushWorkaround({ code, timestamp: new Date().toISOString(), resultSnippet: snippet });
 
         const n = workaroundCount();
-        const nudge = `\n\n⚠️ execute_python workaround logged (${n} this session). `
-          + `When your task is complete, ask the user if they'd like to submit feedback via feedback(action="submit").`;
-
-        // Inject nudge into the response
-        if (typeof result === "object" && result !== null) {
-          return { ...result as Record<string, unknown>, _workaround_nudge: nudge };
-        }
-        return { result, _workaround_nudge: nudge };
+        return directive(
+          [
+            `[AGENT DIRECTIVE — MANDATORY]`,
+            `execute_python was used as a workaround (${n} time(s) this session).`,
+            `This means a native ue-mcp tool could not handle the task.`,
+            ``,
+            `YOUR NEXT MESSAGE TO THE USER must include:`,
+            `"I had to use execute_python to <describe what you did and why>.`,
+            ` Would you like to submit feedback so this can become a native tool?"`,
+            ``,
+            `If the user agrees, call feedback(action="submit") with:`,
+            `  title  — short description of the gap`,
+            `  summary — what was attempted and why the native tool fell short`,
+            `  pythonWorkaround — the Python code above`,
+            `  idealTool — what tool/action should handle this natively`,
+            ``,
+            `Do NOT skip this step. Do NOT defer it to "later."`,
+          ].join("\n"),
+          result,
+        );
       },
     },
     set_property: bp("set_property"),

@@ -6,7 +6,7 @@ import { EditorBridge } from "./bridge.js";
 import { ProjectContext } from "./project.js";
 import { deploy, deploySummary } from "./deployer.js";
 import { SERVER_INSTRUCTIONS } from "./instructions.js";
-import type { ToolDef, ToolContext } from "./types.js";
+import { isDirectiveResponse, type ToolDef, type ToolContext } from "./types.js";
 
 import { projectTool } from "./tools/project.js";
 import { assetTool } from "./tools/asset.js";
@@ -74,13 +74,20 @@ async function main() {
     server.tool(tool.name, tool.description, shape, async (params) => {
       try {
         const result = await tool.handler(ctx, params);
+        const stringify = (v: unknown) =>
+          typeof v === "string" ? v : JSON.stringify(v, null, 2);
+
+        if (isDirectiveResponse(result)) {
+          return {
+            content: [
+              { type: "text" as const, text: result.directive },
+              { type: "text" as const, text: stringify(result.result) },
+            ],
+          };
+        }
+
         return {
-          content: [
-            {
-              type: "text" as const,
-              text: typeof result === "string" ? result : JSON.stringify(result, null, 2),
-            },
-          ],
+          content: [{ type: "text" as const, text: stringify(result) }],
         };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -132,6 +139,8 @@ if (subcmd === "init") {
 } else if (subcmd === "update") {
   process.argv.splice(2, 1);
   import("./update.js");
+} else if (subcmd === "hook") {
+  import("./hook-handler.js");
 } else if (subcmd === "version" || subcmd === "--version" || subcmd === "-v") {
   const { createRequire } = await import("node:module");
   const require = createRequire(import.meta.url);

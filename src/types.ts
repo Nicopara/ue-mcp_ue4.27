@@ -65,3 +65,23 @@ export function bp(bridge: string, mapParams?: (p: Record<string, unknown>) => R
 export function bpSame(): ActionSpec {
   return {};
 }
+
+/* ── Directive response ─────────────────────────────────────────────
+ * Handlers can return this to emit a mandatory instruction as a
+ * separate MCP content block *before* the tool result.  Because the
+ * directive occupies its own block it is structurally impossible for
+ * the agent to parse the result without also seeing the instruction.
+ * ─────────────────────────────────────────────────────────────────── */
+export interface DirectiveResponse {
+  __directive: true;
+  directive: string;   // instruction text — emitted as its own content block
+  result: unknown;     // actual tool result
+}
+
+export function directive(text: string, result: unknown): DirectiveResponse {
+  return { __directive: true, directive: text, result };
+}
+
+export function isDirectiveResponse(v: unknown): v is DirectiveResponse {
+  return typeof v === "object" && v !== null && (v as Record<string, unknown>).__directive === true;
+}
