@@ -42,13 +42,16 @@ function currentBranch(): string {
 /* ── Main ────────────────────────────────────────────────────────── */
 
 async function resolve() {
-  const issueArg = process.argv[3];
+  const args = process.argv.slice(3);
+  const ciMode = args.includes("--ci") || !!process.env.CI;
+  const issueArg = args.find((a) => !a.startsWith("-"));
   const issueNum = Number(issueArg);
 
   if (!issueArg || isNaN(issueNum)) {
     console.log("");
-    console.log(`  ${BOLD}Usage:${RESET} npx ue-mcp resolve <issue-number>`);
+    console.log(`  ${BOLD}Usage:${RESET} npx ue-mcp resolve <issue-number> [--ci]`);
     console.log(`  ${DIM}Example: npx ue-mcp resolve 16${RESET}`);
+    console.log(`  ${DIM}   CI:   npx ue-mcp resolve 16 --ci${RESET}`);
     console.log("");
     process.exit(1);
   }
@@ -136,12 +139,16 @@ async function resolve() {
     `5. Do NOT push, create PRs, or make unrelated changes`,
   ].join("\n");
 
-  // Launch Claude Code interactively
-  console.log(`  ${DIM}Launching Claude Code...${RESET}`);
+  // Launch Claude Code
+  const claudeArgs = ciMode
+    ? ["--print", "--dangerously-skip-permissions", prompt]
+    : [prompt];
+
+  console.log(`  ${DIM}Launching Claude Code${ciMode ? " (CI mode)" : ""}...${RESET}`);
   console.log("");
 
   const exitCode = await new Promise<number | null>((resolve) => {
-    const child = spawn("claude", [prompt], {
+    const child = spawn("claude", claudeArgs, {
       stdio: "inherit",
       shell: true,
     });
