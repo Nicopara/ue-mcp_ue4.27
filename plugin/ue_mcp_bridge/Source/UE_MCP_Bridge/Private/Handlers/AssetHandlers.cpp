@@ -42,6 +42,9 @@
 #include "Engine/Texture2D.h"
 #include "Factories/TextureFactory.h"
 
+// Reimport
+#include "EditorReimportHandler.h"
+
 void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 {
 	Registry.RegisterHandler(TEXT("list_assets"), &ListAssets);
@@ -86,6 +89,9 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("create_datatable"), &CreateDataTable);
 	Registry.RegisterHandler(TEXT("read_datatable"), &ReadDataTable);
 	Registry.RegisterHandler(TEXT("reimport_datatable"), &ReimportDataTable);
+
+	// Generic reimport
+	Registry.RegisterHandler(TEXT("reimport_asset"), &ReimportAsset);
 }
 
 TSharedPtr<FJsonValue> FAssetHandlers::ListAssets(const TSharedPtr<FJsonObject>& Params)
@@ -1807,6 +1813,79 @@ TSharedPtr<FJsonValue> FAssetHandlers::ReimportDataTable(const TSharedPtr<FJsonO
 	Result->SetNumberField(TEXT("rowCount"), DataTable->GetRowMap().Num());
 	Result->SetStringField(TEXT("message"), TEXT("DataTable reimported successfully from JSON"));
 	Result->SetBoolField(TEXT("success"), true);
+
+	return MakeShared<FJsonValueObject>(Result);
+}
+
+// ─── Reimport ─────────────────────────────────────────────────────
+
+TSharedPtr<FJsonValue> FAssetHandlers::ReimportAsset(const TSharedPtr<FJsonObject>& Params)
+{
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+	FString AssetPath;
+	if (!Params->TryGetStringField(TEXT("assetPath"), AssetPath) && !Params->TryGetStringField(TEXT("path"), AssetPath))
+	{
+		Result->SetStringField(TEXT("error"), TEXT("Missing 'assetPath' parameter"));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	UObject* Asset = LoadObject<UObject>(nullptr, *AssetPath);
+	if (!Asset)
+	{
+		Result->SetStringField(TEXT("error"), FString::Printf(TEXT("Asset not found: %s"), *AssetPath));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	// Optionally override the source file path
+	FString NewSourcePath;
+	if (Params->TryGetStringField(TEXT("filePath"), NewSourcePath) || Params->TryGetStringField(TEXT("filename"), NewSourcePath))
+	{
+		if (!FPaths::FileExists(NewSourcePath))
+		{
+			Result->SetStringField(TEXT("error"), FString::Printf(TEXT("File not found: %s"), *NewSourcePath));
+			Result->SetBoolField(TEXT("success"), false);
+			return MakeShared<FJsonValueObject>(Result);
+		}
+
+		// Update the stored source file path on the asset import data
+		UAssetImportData* ImportData = nullptr;
+		if (UStaticMesh* SM = Cast<UStaticMesh>(Asset))
+		{
+			ImportData = SM->AssetImportData;
+		}
+		else if (USkeletalMesh* SKM = Cast<USkeletalMesh>(Asset))
+		{
+			ImportData = SKM->GetAssetImportData();
+		}
+		else
+		{
+			// Generic: try finding AssetImportData property via reflection
+			FObjectProperty* Prop = CastField<FObjectProperty>(Asset->GetClass()->FindPropertyByName(TEXT("AssetImportData")));
+			if (Prop)
+			{
+				ImportData = Cast<UAssetImportData>(Prop->GetObjectPropertyValue_InContainer(Asset));
+			}
+		}
+
+		if (ImportData)
+		{
+			ImportData->Update(NewSourcePath);
+		}
+	}
+
+	// Use FReimportManager to reimport
+	bool bSuccess = FReimportManager::Instance()->Reimport(Asset, /*bAskForNewFileIfMissing=*/false, /*bShowNotification=*/false);
+
+	Result->SetStringField(TEXT("assetPath"), AssetPath);
+	Result->SetStringField(TEXT("assetClass"), Asset->GetClass()->GetName());
+	Result->SetBoolField(TEXT("success"), bSuccess);
+	if (!bSuccess)
+	{
+		Result->SetStringField(TEXT("error"), TEXT("Reimport failed — check that the asset has a valid source file"));
+	}
 
 	return MakeShared<FJsonValueObject>(Result);
 }

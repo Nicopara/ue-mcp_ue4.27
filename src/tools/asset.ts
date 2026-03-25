@@ -82,6 +82,7 @@ export const assetTool: ToolDef = categoryTool(
     import_skeletal_mesh: bp("import_skeletal_mesh", (p) => ({ filename: p.filePath, destinationPath: p.packagePath, assetName: p.name, skeletonPath: p.skeletonPath, importMaterials: p.importMaterials, importTextures: p.importTextures })),
     import_animation:     bp("import_animation", (p) => ({ filename: p.filePath, destinationPath: p.packagePath, assetName: p.name, skeletonPath: p.skeletonPath })),
     import_texture:       bp("import_texture", (p) => ({ filename: p.filePath, destinationPath: p.packagePath, assetName: p.name })),
+    reimport:             bp("reimport_asset", (p) => ({ assetPath: p.assetPath, filePath: p.filePath })),
     read_datatable:       bp("read_datatable", (p) => ({ path: p.assetPath, rowFilter: p.rowFilter })),
     create_datatable:     bp("create_datatable"),
     reimport_datatable:   bp("reimport_datatable", (p) => ({ path: p.assetPath, jsonPath: p.jsonPath, jsonString: p.jsonString })),
@@ -107,6 +108,7 @@ export const assetTool: ToolDef = categoryTool(
 - import_skeletal_mesh: Import from FBX. Params: filePath, name?, packagePath?, skeletonPath?, importMaterials?, importTextures?
 - import_animation: Import anim from FBX. Params: filePath, name?, packagePath?, skeletonPath
 - import_texture: Import image. Params: filePath, name?, packagePath?
+- reimport: Reimport asset from its source file (works for meshes, textures, animations, etc.). Params: assetPath, filePath? (override source file)
 - read_datatable: Read DataTable rows. Params: assetPath, rowFilter?
 - create_datatable: Create DataTable. Params: name, packagePath?, rowStruct
 - reimport_datatable: Reimport from JSON. Params: assetPath, jsonPath?, jsonString?
