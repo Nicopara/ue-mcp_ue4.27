@@ -1854,7 +1854,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::ReimportAsset(const TSharedPtr<FJsonObjec
 		UAssetImportData* ImportData = nullptr;
 		if (UStaticMesh* SM = Cast<UStaticMesh>(Asset))
 		{
-			ImportData = SM->AssetImportData;
+			ImportData = SM->GetAssetImportData();
 		}
 		else if (USkeletalMesh* SKM = Cast<USkeletalMesh>(Asset))
 		{
