@@ -32,8 +32,8 @@ export const materialTool: ToolDef = categoryTool(
 - set_blend_mode: Set blend mode. Params: assetPath, blendMode (Opaque|Masked|Translucent|Additive|Modulate|AlphaComposite|AlphaHoldout)
 - set_base_color: Set base color. Params: assetPath, color {r,g,b,a?}
 - connect_texture: Connect texture to property. Params: materialPath, texturePath, property
-- add_expression: Add expression node. Params: materialPath, expressionType, x?, y?, properties?
-- connect_expressions: Wire two expressions. Params: materialPath, sourceExpression, sourceOutput?, targetExpression, targetInput?
+- add_expression: Add expression node. Returns nodeId (use as sourceExpression/targetExpression). Params: materialPath, expressionType, name?, parameterName?, positionX?, positionY?
+- connect_expressions: Wire two expressions. Use nodeId from add_expression, or expression name/index/class. Params: materialPath, sourceExpression, sourceOutput?, targetExpression, targetInput?
 - connect_to_property: Wire expression to material output. Params: materialPath, expressionName, outputName?, property (BaseColor|Normal|Roughness|Metallic|Emissive|...)
 - list_expressions: List expression nodes. Params: materialPath
 - delete_expression: Remove expression. Params: materialPath, expressionName
