@@ -35,9 +35,9 @@
 #include "AnimStateTransitionNode.h"
 #include "AnimStateEntryNode.h"
 #include "AnimationStateMachineGraph.h"
+#include "AnimGraphNode_AssetPlayerBase.h"
 #include "AnimGraphNode_SequencePlayer.h"
 #include "AnimGraphNode_BlendSpacePlayer.h"
-#include "AnimGraphNode_Inertialization.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 
@@ -1697,13 +1697,18 @@ TSharedPtr<FJsonValue> FAnimationHandlers::CreateStateMachine(const TSharedPtr<F
 
 	// Create the state machine container node in the AnimGraph
 	UAnimGraphNode_StateMachine* SMNode = NewObject<UAnimGraphNode_StateMachine>(TargetGraph);
-	SMNode->GetStateMachineNode()->SetStateMachineName(FName(*Name));
 	TargetGraph->AddNode(SMNode, false, false);
 	SMNode->CreateNewGuid();
-	SMNode->PostPlacedNewNode();
+	SMNode->PostPlacedNewNode();  // This creates the EditorStateMachineGraph sub-graph
 	SMNode->AllocateDefaultPins();
 	SMNode->NodePosX = 200;
 	SMNode->NodePosY = 0;
+
+	// Rename the state machine graph to the desired name
+	if (SMNode->EditorStateMachineGraph)
+	{
+		SMNode->EditorStateMachineGraph->Rename(*Name);
+	}
 
 	CompileAndSave(AnimBP);
 
@@ -1992,7 +1997,7 @@ TSharedPtr<FJsonValue> FAnimationHandlers::SetStateAnimation(const TSharedPtr<FJ
 			SeqPlayer->PostPlacedNewNode();
 			SeqPlayer->AllocateDefaultPins();
 		}
-		SeqPlayer->GetSequencePlayerNode()->SetSequence(Seq);
+		SeqPlayer->SetAnimationAsset(Seq);
 	}
 	else if (UBlendSpace* BS = Cast<UBlendSpace>(AnimAsset))
 	{
@@ -2004,7 +2009,7 @@ TSharedPtr<FJsonValue> FAnimationHandlers::SetStateAnimation(const TSharedPtr<FJ
 			BSPlayer->PostPlacedNewNode();
 			BSPlayer->AllocateDefaultPins();
 		}
-		BSPlayer->GetBlendSpacePlayerNode()->SetBlendSpace(BS);
+		BSPlayer->SetAnimationAsset(BS);
 	}
 	else
 	{
@@ -2177,18 +2182,11 @@ TSharedPtr<FJsonValue> FAnimationHandlers::ReadStateMachine(const TSharedPtr<FJs
 			{
 				for (UEdGraphNode* Inner : State->BoundGraph->Nodes)
 				{
-					if (UAnimGraphNode_SequencePlayer* SP = Cast<UAnimGraphNode_SequencePlayer>(Inner))
+					if (UAnimGraphNode_AssetPlayerBase* AssetNode = Cast<UAnimGraphNode_AssetPlayerBase>(Inner))
 					{
-						if (UAnimSequence* Seq = SP->GetSequencePlayerNode()->GetSequence())
+						if (UAnimationAsset* Asset = AssetNode->GetAnimationAsset())
 						{
-							StateObj->SetStringField(TEXT("animAsset"), Seq->GetPathName());
-						}
-					}
-					else if (UAnimGraphNode_BlendSpacePlayer* BSP = Cast<UAnimGraphNode_BlendSpacePlayer>(Inner))
-					{
-						if (UBlendSpace* BS = BSP->GetBlendSpacePlayerNode()->GetBlendSpace())
-						{
-							StateObj->SetStringField(TEXT("animAsset"), BS->GetPathName());
+							StateObj->SetStringField(TEXT("animAsset"), Asset->GetPathName());
 						}
 					}
 				}
