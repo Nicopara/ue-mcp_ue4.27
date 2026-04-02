@@ -23,6 +23,8 @@ private:
 	static TSharedPtr<FJsonValue> RunEditorUtilityBlueprint(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> AddWidget(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> RemoveWidget(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> MoveWidget(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> ListWidgetClasses(const TSharedPtr<FJsonObject>& Params);
 
 	// Helper: recursively search for a widget by name in the tree
 	static class UWidget* FindWidgetByNameRecursive(class UWidget* Root, const FString& WidgetName);

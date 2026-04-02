@@ -17,15 +17,19 @@ export const widgetTool: ToolDef = categoryTool(
     run_utility_blueprint:    bp("run_editor_utility_blueprint"),
     add_widget:               bp("add_widget"),
     remove_widget:            bp("remove_widget"),
+    move_widget:              bp("move_widget"),
+    list_classes:             bp("list_widget_classes"),
   },
   `- read_tree: Read widget hierarchy. Params: assetPath
 - get_details: Inspect widget. Params: assetPath, widgetName
-- set_property: Set widget property. Params: assetPath, widgetName, propertyName, value
+- set_property: Set widget property. Params: assetPath, widgetName, propertyName, value. Slot props: slot.anchors, slot.alignment, slot.position, slot.size, slot.autoSize, slot.zOrder (CanvasPanel); slot.padding, slot.hAlign, slot.vAlign, slot.sizeRule, slot.fillWeight (HBox/VBox/Overlay)
 - list: List Widget BPs. Params: directory?, recursive?
 - read_animations: Read UMG animations. Params: assetPath
 - create: Create Widget BP. Params: name, packagePath?, parentClass?
 - add_widget: Add widget to widget tree. Params: assetPath, widgetClass (TextBlock|CanvasPanel|Image|Button|VerticalBox|HorizontalBox|Overlay|etc.), widgetName?, parentWidgetName? (if omitted, becomes root or child of root panel)
 - remove_widget: Remove widget from tree. Params: assetPath, widgetName
+- move_widget: Reparent widget. Params: assetPath, widgetName, newParentWidgetName
+- list_classes: List available widget classes with slot property hints
 - create_utility_widget: Create editor panel. Params: name, packagePath?
 - run_utility_widget: Open editor panel. Params: assetPath
 - create_utility_blueprint: Create editor script. Params: name, packagePath?
@@ -35,6 +39,7 @@ export const widgetTool: ToolDef = categoryTool(
     widgetName: z.string().optional(),
     widgetClass: z.string().optional(),
     parentWidgetName: z.string().optional(),
+    newParentWidgetName: z.string().optional(),
     propertyName: z.string().optional(),
     value: z.unknown().optional(),
     directory: z.string().optional(),

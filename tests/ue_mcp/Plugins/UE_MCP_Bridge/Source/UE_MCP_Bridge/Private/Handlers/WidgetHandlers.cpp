@@ -36,6 +36,9 @@
 #include "Components/Border.h"
 #include "Components/Spacer.h"
 #include "Components/RichTextBlock.h"
+#include "Components/HorizontalBoxSlot.h"
+#include "Components/VerticalBoxSlot.h"
+#include "Components/OverlaySlot.h"
 #include "Animation/WidgetAnimation.h"
 #include "MovieScene.h"
 #include "MovieScenePossessable.h"
@@ -66,6 +69,8 @@ void FWidgetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("run_editor_utility_blueprint"), &RunEditorUtilityBlueprint);
 	Registry.RegisterHandler(TEXT("add_widget"), &AddWidget);
 	Registry.RegisterHandler(TEXT("remove_widget"), &RemoveWidget);
+	Registry.RegisterHandler(TEXT("move_widget"), &MoveWidget);
+	Registry.RegisterHandler(TEXT("list_widget_classes"), &ListWidgetClasses);
 }
 
 UWidget* FWidgetHandlers::FindWidgetByNameRecursive(UWidget* Root, const FString& WidgetName)
@@ -847,6 +852,117 @@ TSharedPtr<FJsonValue> FWidgetHandlers::SetWidgetProperty(const TSharedPtr<FJson
 				}
 			}
 
+			// ── HorizontalBoxSlot / VerticalBoxSlot ──
+			auto TryBoxSlotProps = [&](UPanelSlot* BoxSlot) -> bool
+			{
+				if (SlotPropName == TEXT("padding") || SlotPropName == TEXT("Padding"))
+				{
+					// "L,T,R,B" or uniform "N"
+					TArray<FString> Parts;
+					PropertyValue.ParseIntoArray(Parts, TEXT(","));
+					FMargin Margin;
+					if (Parts.Num() == 1)
+					{
+						float V = FCString::Atof(*Parts[0]);
+						Margin = FMargin(V);
+					}
+					else if (Parts.Num() >= 4)
+					{
+						Margin = FMargin(FCString::Atof(*Parts[0]), FCString::Atof(*Parts[1]),
+										  FCString::Atof(*Parts[2]), FCString::Atof(*Parts[3]));
+					}
+					else return false;
+
+					if (UHorizontalBoxSlot* HSlot = Cast<UHorizontalBoxSlot>(BoxSlot))
+						HSlot->SetPadding(Margin);
+					else if (UVerticalBoxSlot* VSlot = Cast<UVerticalBoxSlot>(BoxSlot))
+						VSlot->SetPadding(Margin);
+					else if (UOverlaySlot* OSlot = Cast<UOverlaySlot>(BoxSlot))
+						OSlot->SetPadding(Margin);
+					else return false;
+					return true;
+				}
+				if (SlotPropName == TEXT("hAlign") || SlotPropName == TEXT("HorizontalAlignment") || SlotPropName == TEXT("horizontalAlignment"))
+				{
+					EHorizontalAlignment Align = EHorizontalAlignment::HAlign_Fill;
+					FString Val = PropertyValue.ToLower();
+					if (Val == TEXT("left"))        Align = EHorizontalAlignment::HAlign_Left;
+					else if (Val == TEXT("center"))  Align = EHorizontalAlignment::HAlign_Center;
+					else if (Val == TEXT("right"))   Align = EHorizontalAlignment::HAlign_Right;
+					else if (Val == TEXT("fill"))    Align = EHorizontalAlignment::HAlign_Fill;
+
+					if (UHorizontalBoxSlot* HSlot = Cast<UHorizontalBoxSlot>(BoxSlot))
+						HSlot->SetHorizontalAlignment(Align);
+					else if (UVerticalBoxSlot* VSlot = Cast<UVerticalBoxSlot>(BoxSlot))
+						VSlot->SetHorizontalAlignment(Align);
+					else if (UOverlaySlot* OSlot = Cast<UOverlaySlot>(BoxSlot))
+						OSlot->SetHorizontalAlignment(Align);
+					else return false;
+					return true;
+				}
+				if (SlotPropName == TEXT("vAlign") || SlotPropName == TEXT("VerticalAlignment") || SlotPropName == TEXT("verticalAlignment"))
+				{
+					EVerticalAlignment Align = EVerticalAlignment::VAlign_Fill;
+					FString Val = PropertyValue.ToLower();
+					if (Val == TEXT("top"))          Align = EVerticalAlignment::VAlign_Top;
+					else if (Val == TEXT("center"))  Align = EVerticalAlignment::VAlign_Center;
+					else if (Val == TEXT("bottom"))  Align = EVerticalAlignment::VAlign_Bottom;
+					else if (Val == TEXT("fill"))    Align = EVerticalAlignment::VAlign_Fill;
+
+					if (UHorizontalBoxSlot* HSlot = Cast<UHorizontalBoxSlot>(BoxSlot))
+						HSlot->SetVerticalAlignment(Align);
+					else if (UVerticalBoxSlot* VSlot = Cast<UVerticalBoxSlot>(BoxSlot))
+						VSlot->SetVerticalAlignment(Align);
+					else if (UOverlaySlot* OSlot = Cast<UOverlaySlot>(BoxSlot))
+						OSlot->SetVerticalAlignment(Align);
+					else return false;
+					return true;
+				}
+				if (SlotPropName == TEXT("sizeRule") || SlotPropName == TEXT("SizeRule"))
+				{
+					FString Val = PropertyValue.ToLower();
+					ESlateSizeRule::Type Rule = (Val == TEXT("fill")) ? ESlateSizeRule::Fill : ESlateSizeRule::Automatic;
+					if (UHorizontalBoxSlot* HSlot = Cast<UHorizontalBoxSlot>(BoxSlot))
+					{
+						FSlateChildSize Size = HSlot->GetSize();
+						Size.SizeRule = Rule;
+						HSlot->SetSize(Size);
+					}
+					else if (UVerticalBoxSlot* VSlot = Cast<UVerticalBoxSlot>(BoxSlot))
+					{
+						FSlateChildSize Size = VSlot->GetSize();
+						Size.SizeRule = Rule;
+						VSlot->SetSize(Size);
+					}
+					else return false;
+					return true;
+				}
+				if (SlotPropName == TEXT("sizeValue") || SlotPropName == TEXT("SizeValue") || SlotPropName == TEXT("fillWeight"))
+				{
+					float Value = FCString::Atof(*PropertyValue);
+					if (UHorizontalBoxSlot* HSlot = Cast<UHorizontalBoxSlot>(BoxSlot))
+					{
+						FSlateChildSize Size = HSlot->GetSize();
+						Size.Value = Value;
+						HSlot->SetSize(Size);
+					}
+					else if (UVerticalBoxSlot* VSlot = Cast<UVerticalBoxSlot>(BoxSlot))
+					{
+						FSlateChildSize Size = VSlot->GetSize();
+						Size.Value = Value;
+						VSlot->SetSize(Size);
+					}
+					else return false;
+					return true;
+				}
+				return false;
+			};
+
+			if (!bPropertySet && (Cast<UHorizontalBoxSlot>(Slot) || Cast<UVerticalBoxSlot>(Slot) || Cast<UOverlaySlot>(Slot)))
+			{
+				bPropertySet = TryBoxSlotProps(Slot);
+			}
+
 			// Generic slot reflection fallback
 			if (!bPropertySet)
 			{
@@ -1364,6 +1480,168 @@ TSharedPtr<FJsonValue> FWidgetHandlers::RemoveWidget(const TSharedPtr<FJsonObjec
 
 	Result->SetStringField(TEXT("widgetName"), WidgetName);
 	Result->SetStringField(TEXT("widgetClass"), RemovedClass);
+	Result->SetBoolField(TEXT("success"), true);
+
+	return MakeShared<FJsonValueObject>(Result);
+}
+
+TSharedPtr<FJsonValue> FWidgetHandlers::MoveWidget(const TSharedPtr<FJsonObject>& Params)
+{
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+	FString AssetPath;
+	if (!Params->TryGetStringField(TEXT("assetPath"), AssetPath) && !Params->TryGetStringField(TEXT("path"), AssetPath))
+	{
+		Result->SetStringField(TEXT("error"), TEXT("Missing 'assetPath' parameter"));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	FString WidgetName;
+	if (!Params->TryGetStringField(TEXT("widgetName"), WidgetName))
+	{
+		Result->SetStringField(TEXT("error"), TEXT("Missing 'widgetName' parameter"));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	FString NewParentName;
+	if (!Params->TryGetStringField(TEXT("newParentWidgetName"), NewParentName) && !Params->TryGetStringField(TEXT("parentWidgetName"), NewParentName))
+	{
+		Result->SetStringField(TEXT("error"), TEXT("Missing 'newParentWidgetName' parameter"));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	UObject* LoadedAsset = UEditorAssetLibrary::LoadAsset(AssetPath);
+	UWidgetBlueprint* WidgetBP = Cast<UWidgetBlueprint>(LoadedAsset);
+	if (!WidgetBP || !WidgetBP->WidgetTree)
+	{
+		Result->SetStringField(TEXT("error"), FString::Printf(TEXT("Failed to load WidgetBlueprint at '%s'"), *AssetPath));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	// Find the widget to move
+	UWidget* WidgetToMove = nullptr;
+	UWidget* NewParentRaw = nullptr;
+	WidgetBP->WidgetTree->ForEachWidget([&](UWidget* Widget)
+	{
+		if (Widget && Widget->GetName() == WidgetName) WidgetToMove = Widget;
+		if (Widget && Widget->GetName() == NewParentName) NewParentRaw = Widget;
+	});
+
+	if (!WidgetToMove)
+	{
+		Result->SetStringField(TEXT("error"), FString::Printf(TEXT("Widget not found: '%s'"), *WidgetName));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	if (!NewParentRaw)
+	{
+		Result->SetStringField(TEXT("error"), FString::Printf(TEXT("New parent not found: '%s'"), *NewParentName));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	UPanelWidget* NewParentPanel = Cast<UPanelWidget>(NewParentRaw);
+	if (!NewParentPanel)
+	{
+		Result->SetStringField(TEXT("error"), FString::Printf(TEXT("New parent '%s' (%s) is not a panel widget"), *NewParentName, *NewParentRaw->GetClass()->GetName()));
+		Result->SetBoolField(TEXT("success"), false);
+		return MakeShared<FJsonValueObject>(Result);
+	}
+
+	// Remove from current parent
+	UPanelWidget* OldParent = WidgetToMove->GetParent();
+	FString OldParentName = OldParent ? OldParent->GetName() : TEXT("(root)");
+	if (OldParent)
+	{
+		OldParent->RemoveChild(WidgetToMove);
+	}
+
+	// If it was the root, clear root
+	if (WidgetBP->WidgetTree->RootWidget == WidgetToMove)
+	{
+		WidgetBP->WidgetTree->RootWidget = nullptr;
+	}
+
+	// Add to new parent
+	NewParentPanel->AddChild(WidgetToMove);
+
+	WidgetBP->MarkPackageDirty();
+	FKismetEditorUtilities::CompileBlueprint(WidgetBP);
+	UEditorAssetLibrary::SaveAsset(AssetPath);
+
+	Result->SetStringField(TEXT("widgetName"), WidgetName);
+	Result->SetStringField(TEXT("oldParent"), OldParentName);
+	Result->SetStringField(TEXT("newParent"), NewParentName);
+	Result->SetBoolField(TEXT("success"), true);
+
+	return MakeShared<FJsonValueObject>(Result);
+}
+
+TSharedPtr<FJsonValue> FWidgetHandlers::ListWidgetClasses(const TSharedPtr<FJsonObject>& Params)
+{
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+	struct FWidgetClassInfo { FString Name; FString Category; };
+	TArray<FWidgetClassInfo> Classes = {
+		// Panels / containers
+		{ TEXT("CanvasPanel"),       TEXT("Panel") },
+		{ TEXT("HorizontalBox"),     TEXT("Panel") },
+		{ TEXT("VerticalBox"),       TEXT("Panel") },
+		{ TEXT("Overlay"),           TEXT("Panel") },
+		{ TEXT("GridPanel"),         TEXT("Panel") },
+		{ TEXT("UniformGridPanel"),  TEXT("Panel") },
+		{ TEXT("WidgetSwitcher"),    TEXT("Panel") },
+		{ TEXT("ScrollBox"),         TEXT("Panel") },
+		{ TEXT("SizeBox"),           TEXT("Panel") },
+		{ TEXT("ScaleBox"),          TEXT("Panel") },
+		{ TEXT("Border"),            TEXT("Panel") },
+		// Common widgets
+		{ TEXT("TextBlock"),         TEXT("Common") },
+		{ TEXT("RichTextBlock"),     TEXT("Common") },
+		{ TEXT("Image"),             TEXT("Common") },
+		{ TEXT("Button"),            TEXT("Common") },
+		{ TEXT("CheckBox"),          TEXT("Input") },
+		{ TEXT("Slider"),            TEXT("Input") },
+		{ TEXT("EditableTextBox"),   TEXT("Input") },
+		{ TEXT("ComboBoxString"),    TEXT("Input") },
+		{ TEXT("ProgressBar"),       TEXT("Common") },
+		{ TEXT("Spacer"),            TEXT("Common") },
+	};
+
+	TArray<TSharedPtr<FJsonValue>> ClassesArray;
+	for (const FWidgetClassInfo& Info : Classes)
+	{
+		FString FullPath = FString::Printf(TEXT("/Script/UMG.%s"), *Info.Name);
+		UClass* WClass = FindObject<UClass>(nullptr, *FullPath);
+		bool bIsPanel = WClass && WClass->IsChildOf(UPanelWidget::StaticClass());
+
+		TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
+		Obj->SetStringField(TEXT("name"), Info.Name);
+		Obj->SetStringField(TEXT("category"), Info.Category);
+		Obj->SetBoolField(TEXT("isPanel"), bIsPanel);
+		Obj->SetBoolField(TEXT("available"), WClass != nullptr);
+
+		// Slot properties hint
+		if (bIsPanel)
+		{
+			if (Info.Name == TEXT("CanvasPanel"))
+				Obj->SetStringField(TEXT("slotProperties"), TEXT("slot.anchors, slot.alignment, slot.position, slot.size, slot.autoSize, slot.zOrder"));
+			else if (Info.Name == TEXT("HorizontalBox") || Info.Name == TEXT("VerticalBox"))
+				Obj->SetStringField(TEXT("slotProperties"), TEXT("slot.padding, slot.hAlign, slot.vAlign, slot.sizeRule (auto|fill), slot.fillWeight"));
+			else if (Info.Name == TEXT("Overlay"))
+				Obj->SetStringField(TEXT("slotProperties"), TEXT("slot.padding, slot.hAlign, slot.vAlign"));
+		}
+
+		ClassesArray.Add(MakeShared<FJsonValueObject>(Obj));
+	}
+
+	Result->SetArrayField(TEXT("classes"), ClassesArray);
+	Result->SetNumberField(TEXT("count"), ClassesArray.Num());
 	Result->SetBoolField(TEXT("success"), true);
 
 	return MakeShared<FJsonValueObject>(Result);
