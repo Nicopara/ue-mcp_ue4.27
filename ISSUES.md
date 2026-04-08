@@ -22,14 +22,14 @@
 
 ## Niagara (8)
 
-- [ ] #88 Niagara create action causes editor crash
-- [ ] #74 set_emitter_property returns success but may not actually modify emitter graph
-- [ ] #70 niagara spawn ignores location parameter
-- [ ] #69 list_emitters returns empty after add_emitter succeeds
-- [ ] #68 get_emitter_info returns no useful data
-- [ ] #67 list doesn't return emitter assets, only systems
-- [ ] #66 spawn creates auto-destroying actor that vanishes with empty emitters
-- [ ] #65 No native tools for Niagara emitter graph authoring
+- [x] #88 Niagara create action causes editor crash
+- [x] #74 set_emitter_property returns success but may not actually modify emitter graph
+- [x] #70 niagara spawn ignores location parameter
+- [x] #69 list_emitters returns empty after add_emitter succeeds
+- [x] #68 get_emitter_info returns no useful data
+- [x] #67 list doesn't return emitter assets, only systems
+- [x] #66 spawn creates auto-destroying actor that vanishes with empty emitters
+- [ ] #65 No native tools for Niagara emitter graph authoring (requires NiagaraEditor internals)
 
 ## Animation (8)
 
@@ -83,7 +83,7 @@
 
 ## Editor / Stability (5)
 
-- [ ] #61 Editor crash in NiagaraHandlers::CreateNiagaraSystem — array index out of bounds
+- [x] #61 Editor crash in NiagaraHandlers::CreateNiagaraSystem — array index out of bounds
 - [x] #56 Editor crash in FMCPGameThreadExecutor::ExecuteOnGameThread during startup
 - [x] #17 open_asset crashes editor when opening StaticMesh assets
 - [ ] #64 capture_screenshot silently fails when editor window not focused
