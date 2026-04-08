@@ -28,13 +28,27 @@ export async function callBridge(
   params: Record<string, unknown> = {},
 ): Promise<TestResult> {
   const start = performance.now();
-  try {
-    const result = await bridge.call(method, params);
-    return { method, ok: true, ms: Math.round(performance.now() - start), result };
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : String(e);
-    return { method, ok: false, ms: Math.round(performance.now() - start), error: message };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const result = await bridge.call(method, params);
+      // Retry if the editor says it's not ready yet
+      const str = JSON.stringify(result);
+      if (str.includes("not ready") || str.includes("still initializing")) {
+        await new Promise((r) => setTimeout(r, 2000));
+        continue;
+      }
+      return { method, ok: true, ms: Math.round(performance.now() - start), result };
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (message.includes("connection lost") && attempt < 2) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try { await bridge.connect(5000); } catch { /* retry */ }
+        continue;
+      }
+      return { method, ok: false, ms: Math.round(performance.now() - start), error: message };
+    }
   }
+  return { method, ok: false, ms: Math.round(performance.now() - start), error: "Failed after retries" };
 }
 
 export const TEST_PREFIX = "/Game/MCPTest";
