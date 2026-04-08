@@ -92,11 +92,12 @@ export const assetTool: ToolDef = categoryTool(
     add_socket:           bp("add_socket"),
     remove_socket:        bp("remove_socket"),
     list_sockets:         bp("list_sockets", (p) => ({ assetPath: p.assetPath })),
+    reload_package:       bp("reload_package"),
   },
   `- list: List assets in directory. Params: directory?, typeFilter?, recursive?
 - search: Search by name/class/path. Params: query, directory?, maxResults?, searchAll? (set searchAll=true to search all content roots including plugin paths like /GASP/, not just /Game/)
 - read: Read asset via reflection. Params: assetPath
-- read_properties: Read specific properties. Params: assetPath, exportName?, propertyName?
+- read_properties: Read asset properties with values. Params: assetPath, propertyName? (single prop), includeValues? (true to get all values)
 - duplicate: Duplicate asset. Params: sourcePath, destinationPath
 - rename: Rename asset. Params: assetPath, newName
 - move: Move asset. Params: sourcePath, destinationPath
@@ -117,7 +118,8 @@ export const assetTool: ToolDef = categoryTool(
 - set_texture_settings: Set texture settings. Params: assetPath, settings
 - add_socket: Add socket to StaticMesh or SkeletalMesh. Params: assetPath, socketName, boneName? (skeletal only), relativeLocation?, relativeRotation?, relativeScale?
 - remove_socket: Remove socket by name. Params: assetPath, socketName
-- list_sockets: List sockets on a mesh. Params: assetPath`,
+- list_sockets: List sockets on a mesh. Params: assetPath
+- reload_package: Force reload an asset package from disk. Params: assetPath`,
   {
     assetPath: z.string().optional().describe("Asset path"),
     directory: z.string().optional(), query: z.string().optional(),
@@ -138,6 +140,7 @@ export const assetTool: ToolDef = categoryTool(
     rowFilter: z.string().optional(), rowStruct: z.string().optional(),
     jsonPath: z.string().optional(), jsonString: z.string().optional(),
     exportName: z.string().optional(), propertyName: z.string().optional(),
+    includeValues: z.boolean().optional().describe("Include property values in read_properties"),
     settings: z.record(z.unknown()).optional(),
     assetPaths: z.array(z.string()).optional().describe("Array of asset paths (for recenter_pivot batch — first mesh sets reference pivot)"),
     socketName: z.string().optional().describe("Socket name"),
