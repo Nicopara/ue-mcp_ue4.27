@@ -97,6 +97,29 @@ describe("blueprint — full lifecycle", () => {
     expect(r.ok, r.error).toBe(true);
   });
 
+  it("add_function_parameter (input)", async () => {
+    const r = await callBridge(bridge, "add_function_parameter", {
+      path: bpPath, functionName: "TakeDamage",
+      parameterName: "Amount", parameterType: "Float",
+    });
+    expect(r.ok, r.error).toBe(true);
+  });
+
+  it("add_function_parameter (output)", async () => {
+    const r = await callBridge(bridge, "add_function_parameter", {
+      path: bpPath, functionName: "TakeDamage",
+      parameterName: "Survived", parameterType: "Bool", isOutput: true,
+    });
+    expect(r.ok, r.error).toBe(true);
+  });
+
+  it("set_variable_default", async () => {
+    const r = await callBridge(bridge, "set_variable_default", {
+      path: bpPath, name: "Health", value: "100.0",
+    });
+    expect(r.ok, r.error).toBe(true);
+  });
+
   it("compile_blueprint", async () => {
     const r = await callBridge(bridge, "compile_blueprint", { path: bpPath });
     expect(r.ok, r.error).toBe(true);
@@ -111,6 +134,18 @@ describe("blueprint — full lifecycle", () => {
 
   it("delete_function", async () => {
     const r = await callBridge(bridge, "delete_function", { path: bpPath, functionName: "ApplyDamage" });
+    expect(r.ok, r.error).toBe(true);
+  });
+
+  it("delete_variable", async () => {
+    const r = await callBridge(bridge, "delete_variable", { path: bpPath, name: "Health" });
+    expect(r.ok, r.error).toBe(true);
+  });
+
+  it("remove_component", async () => {
+    const r = await callBridge(bridge, "remove_component", {
+      path: bpPath, componentName: "MyScene",
+    });
     expect(r.ok, r.error).toBe(true);
   });
 });
