@@ -29,9 +29,6 @@ beforeAll(async () => {
     checkFeature(bridge, "StateTree"),
     checkFeature(bridge, "SmartObjects"),
   ]);
-  for (const assetPath of testAssets) {
-    await callBridge(bridge, "delete_asset", { assetPath }).catch(() => {});
-  }
 }, 60_000);
 afterAll(async () => {
   for (const assetPath of testAssets) {

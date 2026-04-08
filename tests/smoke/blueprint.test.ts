@@ -8,10 +8,6 @@ const testAssets = [bpPath, `${TEST_PREFIX}/BPI_SmokeTest`];
 
 beforeAll(async () => {
   bridge = await getBridge();
-  // Clean up any leftover test assets from previous runs (idempotency)
-  for (const assetPath of testAssets) {
-    await callBridge(bridge, "delete_asset", { assetPath }).catch(() => {});
-  }
 });
 afterAll(async () => {
   for (const assetPath of testAssets) {
