@@ -44,10 +44,10 @@
 
 ## Material (4)
 
-- [ ] #72 set_parameter doesn't accept parameterType in schema
-- [ ] #71 set_parameter fails on non-parameter expressions (Constant nodes)
+- [x] #72 set_parameter doesn't accept parameterType in schema
+- [x] #71 set_parameter fails on non-parameter expressions (Constant nodes)
 - [x] #44 Material graph authoring via native tools is unreliable for multi-step operations
-- [ ] #43 Cannot disconnect material property inputs or set Constant3Vector values
+- [x] #43 Cannot disconnect material property inputs or set Constant3Vector values
 
 ## Level / Actors (7)
 
