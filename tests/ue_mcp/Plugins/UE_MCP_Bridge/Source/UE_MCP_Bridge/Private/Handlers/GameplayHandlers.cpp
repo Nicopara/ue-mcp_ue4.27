@@ -445,6 +445,44 @@ TSharedPtr<FJsonValue> FGameplayHandlers::CreateInputAction(const TSharedPtr<FJs
 		return MakeShared<FJsonValueObject>(Result);
 	}
 
+	// Apply valueType if provided
+	FString ValueTypeStr;
+	if (Params->TryGetStringField(TEXT("valueType"), ValueTypeStr) && !ValueTypeStr.IsEmpty())
+	{
+		EInputActionValueType DesiredType = EInputActionValueType::Boolean;
+		bool bValidType = true;
+
+		if (ValueTypeStr.Equals(TEXT("Boolean"), ESearchCase::IgnoreCase) || ValueTypeStr == TEXT("Digital"))
+		{
+			DesiredType = EInputActionValueType::Boolean;
+		}
+		else if (ValueTypeStr.Equals(TEXT("Axis1D"), ESearchCase::IgnoreCase) || ValueTypeStr.Equals(TEXT("Float"), ESearchCase::IgnoreCase))
+		{
+			DesiredType = EInputActionValueType::Axis1D;
+		}
+		else if (ValueTypeStr.Equals(TEXT("Axis2D"), ESearchCase::IgnoreCase) || ValueTypeStr.Equals(TEXT("Vector2D"), ESearchCase::IgnoreCase))
+		{
+			DesiredType = EInputActionValueType::Axis2D;
+		}
+		else if (ValueTypeStr.Equals(TEXT("Axis3D"), ESearchCase::IgnoreCase) || ValueTypeStr.Equals(TEXT("Vector"), ESearchCase::IgnoreCase))
+		{
+			DesiredType = EInputActionValueType::Axis3D;
+		}
+		else
+		{
+			bValidType = false;
+		}
+
+		if (bValidType)
+		{
+			UInputAction* InputAction = Cast<UInputAction>(NewAsset);
+			if (InputAction)
+			{
+				InputAction->ValueType = DesiredType;
+			}
+		}
+	}
+
 	UEditorAssetLibrary::SaveAsset(NewAsset->GetPathName());
 
 	Result->SetStringField(TEXT("path"), NewAsset->GetPathName());

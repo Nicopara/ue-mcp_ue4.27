@@ -92,6 +92,22 @@ describe("gameplay — create assets (with cleanup)", () => {
     expect(r.ok, r.error).toBe(true);
   });
 
+  it("create_input_action with valueType=Axis2D (#50)", async () => {
+    const r = await callBridge(bridge, "create_input_action", {
+      name: "IA_SmokeTestAxis2D", packagePath: TEST_PREFIX, valueType: "Axis2D",
+    });
+    expect(r.ok, r.error).toBe(true);
+    // Verify the value type was actually applied via Python introspection
+    const verify = await callBridge(bridge, "execute_python", {
+      code: `import unreal\nia = unreal.load_asset('${TEST_PREFIX}/IA_SmokeTestAxis2D')\nprint("VALUETYPE:" + str(ia.value_type))`,
+    });
+    expect(verify.ok, verify.error).toBe(true);
+    const output = JSON.stringify(verify.result);
+    expect(output).toContain("AXIS2D");
+    // Cleanup
+    await callBridge(bridge, "delete_asset", { assetPath: `${TEST_PREFIX}/IA_SmokeTestAxis2D` });
+  });
+
   it("create_input_mapping_context", async () => {
     const r = await callBridge(bridge, "create_input_mapping_context", {
       name: "IMC_SmokeTest", packagePath: TEST_PREFIX,
