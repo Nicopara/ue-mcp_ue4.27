@@ -1621,14 +1621,8 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddEventDispatcher(const TSharedPtr<F
 	if (SigGraph)
 	{
 		Blueprint->DelegateSignatureGraphs.AddUnique(SigGraph);
-		SigGraph->SetFlags(RF_Transactional);
-
-		// Add a function entry node — the compiler looks for this as the signature function
-		UK2Node_FunctionEntry* EntryNode = NewObject<UK2Node_FunctionEntry>(SigGraph);
-		SigGraph->AddNode(EntryNode, false, false);
-		EntryNode->CreateNewGuid();
-		EntryNode->PostPlacedNewNode();
-		EntryNode->AllocateDefaultPins();
+		// AddFunctionGraph creates a proper K2Node_FunctionEntry with delegate flags
+		FBlueprintEditorUtils::AddFunctionGraph<UClass>(Blueprint, SigGraph, /*bIsUserCreated=*/true, /*SignatureFromObject=*/nullptr);
 	}
 
 	FEdGraphPinType PinType;
