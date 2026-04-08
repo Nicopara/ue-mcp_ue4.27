@@ -8,6 +8,8 @@ export const materialTool: ToolDef = categoryTool(
     read:              bp("read_material", (p) => ({ assetPath: p.assetPath })),
     list_parameters:   bp("list_material_parameters", (p) => ({ assetPath: p.assetPath })),
     set_parameter:     bp("set_material_parameter"),
+    set_expression_value: bp("set_expression_value"),
+    disconnect_property: bp("disconnect_material_property"),
     create_instance:   bp("create_material_instance"),
     create:            bp("create_material"),
     set_shading_model: bp("set_material_shading_model"),
@@ -25,7 +27,9 @@ export const materialTool: ToolDef = categoryTool(
   },
   `- read: Read material structure. Params: assetPath
 - list_parameters: List overridable parameters. Params: assetPath
-- set_parameter: Set parameter value. Params: assetPath, parameterName, value
+- set_parameter: Set parameter on MaterialInstance. Params: assetPath, parameterName, parameterType (scalar|vector|texture), value
+- set_expression_value: Set value on expression node (Constant, Constant3Vector, etc.). Params: materialPath, expressionIndex, value (number or {r,g,b,a})
+- disconnect_property: Disconnect a material property input. Params: materialPath, property (BaseColor|Normal|Roughness|...)
 - create_instance: Create material instance. Params: parentPath, name?, packagePath?
 - create: Create material. Params: name, packagePath?
 - set_shading_model: Set shading model. Params: assetPath, shadingModel
@@ -42,6 +46,8 @@ export const materialTool: ToolDef = categoryTool(
   {
     assetPath: z.string().optional(),
     parameterName: z.string().optional(),
+    parameterType: z.string().optional().describe("Parameter type for set_parameter: scalar, vector, texture"),
+    expressionIndex: z.number().optional(),
     value: z.unknown().optional(),
     parentPath: z.string().optional(),
     name: z.string().optional(),
