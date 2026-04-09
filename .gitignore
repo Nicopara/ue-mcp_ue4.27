@@ -24,6 +24,17 @@ obj/
 ## MCP config (contains absolute local paths)
 .mcp.json
 
+## Kantext
+.kantext/
+kantext-mcp-*
+
+## Junk
+TODO.md
+ISSUES.md
+RELEASE_NOTES*.md
+CODE_OF_CONDUCT.md
+*.stackdump
+
 ## OS
 .DS_Store
 Thumbs.db
