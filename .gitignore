@@ -16,9 +16,13 @@ obj/
 ## IDE
 .idea/
 .vscode/
+.cursor/
 *.swp
 *.swo
 *~
+
+## MCP config (contains absolute local paths)
+.mcp.json
 
 ## OS
 .DS_Store

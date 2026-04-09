@@ -17,7 +17,7 @@ project — Project status, config INI, C++ source
   get_status, set_project, get_info, read_config, search_config, list_config_tags,
   set_config, read_cpp_header, read_module, list_modules, search_cpp
 
-asset — Assets: list, search, CRUD, import, datatables, textures
+asset — Assets: list, search, CRUD, import, export, datatables, textures
   list, search, read, read_properties, duplicate, rename, move, delete, save,
   import_static_mesh, import_skeletal_mesh, import_animation, import_texture,
   read_datatable, create_datatable, reimport_datatable, list_textures,

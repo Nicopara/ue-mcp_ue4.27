@@ -94,6 +94,7 @@ export const assetTool: ToolDef = categoryTool(
     remove_socket:        bp("remove_socket"),
     list_sockets:         bp("list_sockets", (p) => ({ assetPath: p.assetPath })),
     reload_package:       bp("reload_package"),
+    export:               bp("export_asset"),
   },
   `- list: List assets in directory. Params: directory?, typeFilter?, recursive?
 - search: Search by name/class/path. Params: query, directory?, maxResults?, searchAll? (set searchAll=true to search all content roots including plugin paths like /GASP/, not just /Game/)
@@ -120,7 +121,8 @@ export const assetTool: ToolDef = categoryTool(
 - add_socket: Add socket to StaticMesh or SkeletalMesh. Params: assetPath, socketName, boneName? (skeletal only), relativeLocation?, relativeRotation?, relativeScale?
 - remove_socket: Remove socket by name. Params: assetPath, socketName
 - list_sockets: List sockets on a mesh. Params: assetPath
-- reload_package: Force reload an asset package from disk. Params: assetPath`,
+- reload_package: Force reload an asset package from disk. Params: assetPath
+- export: Export asset to disk file (Texture2D → PNG, StaticMesh → FBX, etc.). Params: assetPath, outputPath`,
   {
     assetPath: z.string().optional().describe("Asset path"),
     directory: z.string().optional(), query: z.string().optional(),
@@ -149,5 +151,6 @@ export const assetTool: ToolDef = categoryTool(
     relativeLocation: Vec3.optional().describe("Socket relative location"),
     relativeRotation: Rotator.optional().describe("Socket relative rotation"),
     relativeScale: Vec3.optional().describe("Socket relative scale"),
+    outputPath: z.string().optional().describe("Absolute file path for export (e.g. C:/output/texture.png)"),
   },
 );
