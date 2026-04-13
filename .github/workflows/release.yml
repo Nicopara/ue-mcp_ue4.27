@@ -20,10 +20,13 @@ jobs:
           cache: "npm"
 
       - name: Install
-        run: npm install --ignore-scripts
+        run: npm install
 
       - name: Build
         run: npx tsc
+
+      - name: Generate default config
+        run: npx tsx scripts/generate-default-config.ts
 
       - name: Package tarball
         run: tar czf ue-mcp.tar.gz dist/ plugin/ package.json package-lock.json README.md LICENSE
@@ -35,6 +38,6 @@ jobs:
           files: ue-mcp.tar.gz
 
       - name: Publish to npm
-        run: npm publish --access public
+        run: npm publish --access public --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
