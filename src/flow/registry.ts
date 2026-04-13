@@ -1,5 +1,5 @@
-import { TaskRegistry } from "flowkit";
-import type { TaskConstructor } from "flowkit";
+import { TaskRegistry } from "@db-lyon/flowkit";
+import type { TaskConstructor } from "@db-lyon/flowkit";
 import type { ToolDef, ActionSpec, ToolContext } from "../types.js";
 import type { FlowContext } from "./context.js";
 import { BridgeTask } from "./bridge-task.js";

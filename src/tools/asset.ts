@@ -9,6 +9,7 @@ export const assetTool: ToolDef = categoryTool(
   "Asset management: list, search, read, CRUD, import meshes/textures, datatables.",
   {
     list: {
+      description: "List assets in directory. Params: directory?, typeFilter?, recursive?",
       handler: async (ctx, p) => {
         ctx.project.ensureLoaded();
         const dir = p.directory ? ctx.project.resolveContentDir(p.directory as string) : ctx.project.contentDir!;
@@ -41,6 +42,7 @@ export const assetTool: ToolDef = categoryTool(
       },
     },
     search: {
+      description: "Search by name/class/path. Params: query, directory?, maxResults?, searchAll?",
       handler: async (ctx, p) => {
         const { action: _, ...rest } = p;
         const roots = ctx.project.config.contentRoots;
@@ -66,63 +68,37 @@ export const assetTool: ToolDef = categoryTool(
         return ctx.bridge.call("search_assets", rest);
       },
     },
-    read:           bp("read_asset", (p) => ({ path: p.assetPath })),
-    read_properties: bp("read_asset_properties"),
-    duplicate:      bp("duplicate_asset"),
-    rename:         bp("rename_asset"),
-    move:           bp("move_asset"),
-    delete:         bp("delete_asset"),
-    save:           bp("save_asset"),
-    set_mesh_material:    bp("set_mesh_material"),
-    recenter_pivot:       bp("recenter_pivot", (p) => {
+    read:           bp("Read asset via reflection. Params: assetPath", "read_asset", (p) => ({ path: p.assetPath })),
+    read_properties: bp("Read asset properties with values. Params: assetPath, propertyName?, includeValues?", "read_asset_properties"),
+    duplicate:      bp("Duplicate asset. Params: sourcePath, destinationPath", "duplicate_asset"),
+    rename:         bp("Rename asset. Params: assetPath, newName", "rename_asset"),
+    move:           bp("Move asset. Params: sourcePath, destinationPath", "move_asset"),
+    delete:         bp("Delete asset. Params: assetPath", "delete_asset"),
+    save:           bp("Save asset(s). Params: assetPath?", "save_asset"),
+    set_mesh_material:    bp("Assign material to static mesh slot. Params: assetPath, materialPath, slotIndex?", "set_mesh_material"),
+    recenter_pivot:       { description: "Move static mesh pivot to geometry center. Params: assetPath OR assetPaths", bridge: "recenter_pivot", mapParams: (p) => {
       const paths = p.assetPaths as string[] | undefined;
       if (paths && paths.length > 0) return { assetPaths: paths };
       return { assetPath: p.assetPath };
-    }),
-    import_static_mesh:   bp("import_static_mesh", (p) => ({ filename: p.filePath, destinationPath: p.packagePath, assetName: p.name, combineMeshes: p.combineMeshes, importMaterials: p.importMaterials, importTextures: p.importTextures, generateLightmapUVs: p.generateLightmapUVs })),
-    import_skeletal_mesh: bp("import_skeletal_mesh", (p) => ({ filename: p.filePath, destinationPath: p.packagePath, assetName: p.name, skeletonPath: p.skeletonPath, importMaterials: p.importMaterials, importTextures: p.importTextures })),
-    import_animation:     bp("import_animation", (p) => ({ filename: p.filePath, destinationPath: p.packagePath, assetName: p.name, skeletonPath: p.skeletonPath })),
-    import_texture:       bp("import_texture", (p) => ({ filename: p.filePath, destinationPath: p.packagePath, assetName: p.name })),
-    reimport:             bp("reimport_asset", (p) => ({ assetPath: p.assetPath, filePath: p.filePath })),
-    read_datatable:       bp("read_datatable", (p) => ({ path: p.assetPath, rowFilter: p.rowFilter })),
-    create_datatable:     bp("create_datatable"),
-    reimport_datatable:   bp("reimport_datatable", (p) => ({ path: p.assetPath, jsonPath: p.jsonPath, jsonString: p.jsonString })),
-    list_textures:        bp("list_textures"),
-    get_texture_info:     bp("get_texture_info"),
-    set_texture_settings: bp("set_texture_settings"),
-    add_socket:           bp("add_socket"),
-    remove_socket:        bp("remove_socket"),
-    list_sockets:         bp("list_sockets", (p) => ({ assetPath: p.assetPath })),
-    reload_package:       bp("reload_package"),
-    export:               bp("export_asset"),
+    }},
+    import_static_mesh:   bp("Import from FBX/OBJ. Params: filePath, name?, packagePath?, combineMeshes?, importMaterials?, importTextures?, generateLightmapUVs?", "import_static_mesh", (p) => ({ filename: p.filePath, destinationPath: p.packagePath, assetName: p.name, combineMeshes: p.combineMeshes, importMaterials: p.importMaterials, importTextures: p.importTextures, generateLightmapUVs: p.generateLightmapUVs })),
+    import_skeletal_mesh: bp("Import skeletal mesh from FBX. Params: filePath, name?, packagePath?, skeletonPath?, importMaterials?, importTextures?", "import_skeletal_mesh", (p) => ({ filename: p.filePath, destinationPath: p.packagePath, assetName: p.name, skeletonPath: p.skeletonPath, importMaterials: p.importMaterials, importTextures: p.importTextures })),
+    import_animation:     bp("Import anim from FBX. Params: filePath, name?, packagePath?, skeletonPath", "import_animation", (p) => ({ filename: p.filePath, destinationPath: p.packagePath, assetName: p.name, skeletonPath: p.skeletonPath })),
+    import_texture:       bp("Import image. Params: filePath, name?, packagePath?", "import_texture", (p) => ({ filename: p.filePath, destinationPath: p.packagePath, assetName: p.name })),
+    reimport:             bp("Reimport asset from source file. Params: assetPath, filePath?", "reimport_asset", (p) => ({ assetPath: p.assetPath, filePath: p.filePath })),
+    read_datatable:       bp("Read DataTable rows. Params: assetPath, rowFilter?", "read_datatable", (p) => ({ path: p.assetPath, rowFilter: p.rowFilter })),
+    create_datatable:     bp("Create DataTable. Params: name, packagePath?, rowStruct", "create_datatable"),
+    reimport_datatable:   bp("Reimport DataTable from JSON. Params: assetPath, jsonPath?, jsonString?", "reimport_datatable", (p) => ({ path: p.assetPath, jsonPath: p.jsonPath, jsonString: p.jsonString })),
+    list_textures:        bp("List textures. Params: directory?, recursive?", "list_textures"),
+    get_texture_info:     bp("Get texture details. Params: assetPath", "get_texture_info"),
+    set_texture_settings: bp("Set texture settings. Params: assetPath, settings", "set_texture_settings"),
+    add_socket:           bp("Add socket to StaticMesh or SkeletalMesh. Params: assetPath, socketName, boneName?, relativeLocation?, relativeRotation?, relativeScale?", "add_socket"),
+    remove_socket:        bp("Remove socket by name. Params: assetPath, socketName", "remove_socket"),
+    list_sockets:         bp("List sockets on a mesh. Params: assetPath", "list_sockets", (p) => ({ assetPath: p.assetPath })),
+    reload_package:       bp("Force reload an asset package from disk. Params: assetPath", "reload_package"),
+    export:               bp("Export asset to disk file (Texture2D → PNG, StaticMesh → FBX, etc.). Params: assetPath, outputPath", "export_asset"),
   },
-  `- list: List assets in directory. Params: directory?, typeFilter?, recursive?
-- search: Search by name/class/path. Params: query, directory?, maxResults?, searchAll? (set searchAll=true to search all content roots including plugin paths like /GASP/, not just /Game/)
-- read: Read asset via reflection. Params: assetPath
-- read_properties: Read asset properties with values. Params: assetPath, propertyName? (single prop), includeValues? (true to get all values)
-- duplicate: Duplicate asset. Params: sourcePath, destinationPath
-- rename: Rename asset. Params: assetPath, newName
-- move: Move asset. Params: sourcePath, destinationPath
-- delete: Delete asset. Params: assetPath
-- save: Save asset(s). Params: assetPath?
-- set_mesh_material: Assign material to static mesh slot. Params: assetPath, materialPath, slotIndex?
-- recenter_pivot: Move static mesh pivot to geometry center. Params: assetPath OR assetPaths (array — first mesh sets the reference pivot for all)
-- import_static_mesh: Import from FBX/OBJ. Multi-mesh FBX imports as separate assets by default (combineMeshes=false). Params: filePath, name?, packagePath?, combineMeshes?, importMaterials?, importTextures?, generateLightmapUVs?
-- import_skeletal_mesh: Import from FBX. Params: filePath, name?, packagePath?, skeletonPath?, importMaterials?, importTextures?
-- import_animation: Import anim from FBX. Params: filePath, name?, packagePath?, skeletonPath
-- import_texture: Import image. Params: filePath, name?, packagePath?
-- reimport: Reimport asset from its source file (works for meshes, textures, animations, etc.). Params: assetPath, filePath? (override source file)
-- read_datatable: Read DataTable rows. Params: assetPath, rowFilter?
-- create_datatable: Create DataTable. Params: name, packagePath?, rowStruct
-- reimport_datatable: Reimport from JSON. Params: assetPath, jsonPath?, jsonString?
-- list_textures: List textures. Params: directory?, recursive?
-- get_texture_info: Get texture details. Params: assetPath
-- set_texture_settings: Set texture settings. Params: assetPath, settings
-- add_socket: Add socket to StaticMesh or SkeletalMesh. Params: assetPath, socketName, boneName? (skeletal only), relativeLocation?, relativeRotation?, relativeScale?
-- remove_socket: Remove socket by name. Params: assetPath, socketName
-- list_sockets: List sockets on a mesh. Params: assetPath
-- reload_package: Force reload an asset package from disk. Params: assetPath
-- export: Export asset to disk file (Texture2D → PNG, StaticMesh → FBX, etc.). Params: assetPath, outputPath`,
+  undefined,
   {
     assetPath: z.string().optional().describe("Asset path"),
     directory: z.string().optional(), query: z.string().optional(),

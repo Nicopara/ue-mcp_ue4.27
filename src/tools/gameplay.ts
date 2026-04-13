@@ -6,89 +6,44 @@ export const gameplayTool: ToolDef = categoryTool(
   "gameplay",
   "Gameplay systems: physics, collision, navigation, input, behavior trees, AI (EQS, perception, State Trees, Smart Objects), game framework.",
   {
-    // Physics & Collision
-    set_collision_profile:  bp("set_collision_profile"),
-    set_simulate_physics:   bp("set_simulate_physics"),
-    set_collision_enabled:  bp("set_collision_enabled"),
-    set_physics_properties: bp("set_physics_properties"),
-    // Navigation
-    rebuild_navigation:     bp("rebuild_navigation"),
-    get_navmesh_info:       bp("get_navmesh_info"),
-    project_to_nav:         bp("project_point_to_navigation"),
-    spawn_nav_modifier:     bp("spawn_nav_modifier_volume"),
-    // Input
-    create_input_action:    bp("create_input_action"),
-    create_input_mapping:   bp("create_input_mapping_context"),
-    list_input_assets:      bp("list_input_assets"),
-    read_imc:               bp("read_imc"),
-    add_imc_mapping:        bp("add_imc_mapping"),
-    set_mapping_modifiers:  bp("set_mapping_modifiers"),
-    // Behavior Trees
-    list_behavior_trees:    bp("list_behavior_trees"),
-    get_behavior_tree_info: bp("get_behavior_tree_info"),
-    create_blackboard:      bp("create_blackboard"),
-    create_behavior_tree:   bp("create_behavior_tree"),
-    // EQS
-    create_eqs_query:       bp("create_eqs_query"),
-    list_eqs_queries:       bp("list_eqs_queries"),
-    // AI Perception
-    add_perception:         bp("add_perception_component"),
-    configure_sense:        bp("configure_ai_perception_sense"),
-    // State Trees
-    create_state_tree:      bp("create_state_tree"),
-    list_state_trees:       bp("list_state_trees"),
-    add_state_tree_component: bp("add_state_tree_component"),
-    // Smart Objects
-    create_smart_object_def: bp("create_smart_object_definition"),
-    add_smart_object_component: bp("add_smart_object_component"),
-    // PIE Inspection
-    inspect_pie:            bp("inspect_pie"),
-    get_pie_anim_state:     bp("get_pie_anim_state"),
-    // Game Framework
-    create_game_mode:       bp("create_game_mode"),
-    create_game_state:      bp("create_game_state"),
-    create_player_controller: bp("create_player_controller"),
-    create_player_state:    bp("create_player_state"),
-    create_hud:             bp("create_hud"),
-    set_world_game_mode:    bp("set_world_game_mode"),
-    get_framework_info:     bp("get_game_framework_info"),
+    set_collision_profile:  bp("Set collision preset. Params: actorLabel, profileName", "set_collision_profile"),
+    set_simulate_physics:   bp("Toggle physics. Params: actorLabel, simulate", "set_simulate_physics"),
+    set_collision_enabled:  bp("Set collision mode. Params: actorLabel, collisionEnabled", "set_collision_enabled"),
+    set_physics_properties: bp("Set mass/damping/gravity. Params: actorLabel, mass?, linearDamping?, angularDamping?, enableGravity?", "set_physics_properties"),
+    rebuild_navigation:     bp("Rebuild navmesh", "rebuild_navigation"),
+    get_navmesh_info:       bp("Query nav system", "get_navmesh_info"),
+    project_to_nav:         bp("Project point to navmesh. Params: location, extent?", "project_point_to_navigation"),
+    spawn_nav_modifier:     bp("Place nav modifier. Params: location, extent?, areaClass?", "spawn_nav_modifier_volume"),
+    create_input_action:    bp("Create InputAction. Params: name, packagePath?, valueType?", "create_input_action"),
+    create_input_mapping:   bp("Create InputMappingContext. Params: name, packagePath?", "create_input_mapping_context"),
+    list_input_assets:      bp("List input assets. Params: directory?, recursive?", "list_input_assets"),
+    read_imc:               bp("Read InputMappingContext mappings. Params: imcPath", "read_imc"),
+    add_imc_mapping:        bp("Add key mapping to IMC. Params: imcPath, inputActionPath, key", "add_imc_mapping"),
+    set_mapping_modifiers:  bp("Set modifiers/triggers on an IMC mapping. Params: imcPath, mappingIndex?, modifiers?, triggers?", "set_mapping_modifiers"),
+    list_behavior_trees:    bp("List behavior trees. Params: directory?, recursive?", "list_behavior_trees"),
+    get_behavior_tree_info: bp("Inspect behavior tree. Params: assetPath", "get_behavior_tree_info"),
+    create_blackboard:      bp("Create Blackboard. Params: name, packagePath?", "create_blackboard"),
+    create_behavior_tree:   bp("Create behavior tree. Params: name, packagePath?, blackboardPath?", "create_behavior_tree"),
+    create_eqs_query:       bp("Create EQS query. Params: name, packagePath?", "create_eqs_query"),
+    list_eqs_queries:       bp("List EQS queries. Params: directory?", "list_eqs_queries"),
+    add_perception:         bp("Add AIPerceptionComponent. Params: blueprintPath, senses?", "add_perception_component"),
+    configure_sense:        bp("Configure perception sense. Params: blueprintPath, senseType, settings?", "configure_ai_perception_sense"),
+    create_state_tree:      bp("Create StateTree. Params: name, packagePath?", "create_state_tree"),
+    list_state_trees:       bp("List StateTrees. Params: directory?", "list_state_trees"),
+    add_state_tree_component: bp("Add StateTreeComponent. Params: blueprintPath", "add_state_tree_component"),
+    create_smart_object_def: bp("Create SmartObjectDefinition. Params: name, packagePath?", "create_smart_object_definition"),
+    add_smart_object_component: bp("Add SmartObjectComponent. Params: blueprintPath", "add_smart_object_component"),
+    inspect_pie:            bp("Inspect PIE runtime. Params: actorLabel?", "inspect_pie"),
+    get_pie_anim_state:     bp("Get PIE anim instance state. Params: actorLabel", "get_pie_anim_state"),
+    create_game_mode:       bp("Create GameMode BP. Params: name, packagePath?, parentClass?, defaults?", "create_game_mode"),
+    create_game_state:      bp("Create GameState BP. Params: name, packagePath?, parentClass?", "create_game_state"),
+    create_player_controller: bp("Create PlayerController BP. Params: name, packagePath?, parentClass?", "create_player_controller"),
+    create_player_state:    bp("Create PlayerState BP. Params: name, packagePath?", "create_player_state"),
+    create_hud:             bp("Create HUD BP. Params: name, packagePath?", "create_hud"),
+    set_world_game_mode:    bp("Set level GameMode override. Params: gameModePath", "set_world_game_mode"),
+    get_framework_info:     bp("Get level framework classes", "get_game_framework_info"),
   },
-  `- set_collision_profile: Set collision preset. Params: actorLabel, profileName
-- set_simulate_physics: Toggle physics. Params: actorLabel, simulate
-- set_collision_enabled: Set collision mode. Params: actorLabel, collisionEnabled
-- set_physics_properties: Set mass/damping/gravity. Params: actorLabel, mass?, linearDamping?, angularDamping?, enableGravity?
-- rebuild_navigation: Rebuild navmesh
-- get_navmesh_info: Query nav system
-- project_to_nav: Project point to navmesh. Params: location, extent?
-- spawn_nav_modifier: Place nav modifier. Params: location, extent?, areaClass?
-- create_input_action: Create InputAction. Params: name, packagePath?, valueType?
-- create_input_mapping: Create InputMappingContext. Params: name, packagePath?
-- list_input_assets: List input assets. Params: directory?, recursive?
-- read_imc: Read InputMappingContext mappings. Params: imcPath
-- add_imc_mapping: Add key mapping to InputMappingContext. Params: imcPath, inputActionPath, key (e.g. "W", "SpaceBar", "LeftMouseButton")
-- set_mapping_modifiers: Set modifiers/triggers on an IMC mapping (persists on save — creates subobjects with correct outer). Params: imcPath, mappingIndex?, modifiers? (array of {type, ...props}), triggers? (array of {type, ...props}). Modifier types: DeadZone (LowerThreshold, UpperThreshold, Type=Axial|Radial), Negate, Scalar, SwizzleAxis, Smooth, ScaleByDeltaTime, FOVScaling, ToWorldSpace, ResponseCurveExponential. Trigger types: Down, Pressed, Released, Hold (HoldTimeThreshold), HoldAndRelease, Tap, Pulse, ChordAction.
-- inspect_pie: Inspect PIE runtime. No params = list all PIE actors. Params: actorLabel? (detailed info with components)
-- get_pie_anim_state: Get PIE anim instance state. Params: actorLabel (returns current montage, state machines, anim class)
-- list_behavior_trees: List BTs. Params: directory?, recursive?
-- get_behavior_tree_info: Inspect BT. Params: assetPath
-- create_blackboard: Create Blackboard. Params: name, packagePath?
-- create_behavior_tree: Create BT. Params: name, packagePath?, blackboardPath?
-- create_eqs_query: Create EQS query. Params: name, packagePath?
-- list_eqs_queries: List EQS queries. Params: directory?
-- add_perception: Add AIPerceptionComponent. Params: blueprintPath, senses?
-- configure_sense: Configure perception sense. Params: blueprintPath, senseType (Sight|Hearing|Damage|Touch|Team), settings?
-- create_state_tree: Create StateTree. Params: name, packagePath?
-- list_state_trees: List StateTrees. Params: directory?
-- add_state_tree_component: Add StateTreeComponent. Params: blueprintPath
-- create_smart_object_def: Create SmartObjectDefinition. Params: name, packagePath?
-- add_smart_object_component: Add SmartObjectComponent. Params: blueprintPath
-- create_game_mode: Create GameMode BP. Params: name, packagePath?, parentClass?, defaults? (defaultPawnClass, hudClass, playerControllerClass, gameStateClass)
-- create_game_state: Create GameState BP. Params: name, packagePath?, parentClass?
-- create_player_controller: Create PlayerController BP. Params: name, packagePath?, parentClass?
-- create_player_state: Create PlayerState BP. Params: name, packagePath?
-- create_hud: Create HUD BP. Params: name, packagePath?
-- set_world_game_mode: Set level GameMode override. Params: gameModePath
-- get_framework_info: Get level framework classes`,
+  undefined,
   {
     actorLabel: z.string().optional(),
     profileName: z.string().optional(),

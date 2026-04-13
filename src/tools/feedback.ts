@@ -8,6 +8,7 @@ export const feedbackTool: ToolDef = categoryTool(
   "Submit feedback to improve ue-mcp when native tools fall short and execute_python was used as a workaround.",
   {
     submit: {
+      description: "Submit feedback about a tool gap. Params: title, summary, pythonWorkaround?, idealTool?",
       handler: async (_ctx: ToolContext, params: Record<string, unknown>) => {
         const title = params.title as string;
         const summary = params.summary as string;
@@ -60,7 +61,7 @@ export const feedbackTool: ToolDef = categoryTool(
       },
     },
   },
-  `- submit: Submit feedback about a tool gap. Params: title, summary, pythonWorkaround?, idealTool?`,
+  undefined,
   {
     title: z
       .string()

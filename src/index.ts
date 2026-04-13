@@ -143,7 +143,7 @@ async function main() {
   }
 
   // ── Load ue-mcp.yml and register flow tool ──────────────────────
-  const flowLoaded = loadFlowConfig(project.projectDir ?? undefined);
+  const flowLoaded = loadFlowConfig(ALL_TOOLS, project.projectDir ?? undefined);
   const flowConfig: FlowConfig = flowLoaded?.config ?? { tasks: {}, flows: {} };
 
   if (flowLoaded) {

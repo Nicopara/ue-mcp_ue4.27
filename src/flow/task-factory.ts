@@ -1,4 +1,4 @@
-import { BaseTask, type TaskResult, type TaskConstructor, type TaskContext } from "flowkit";
+import { BaseTask, type TaskResult, type TaskConstructor, type TaskContext } from "@db-lyon/flowkit";
 import type { FlowContext } from "./context.js";
 
 /**

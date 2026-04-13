@@ -1,13 +1,43 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { loadConfig, type LoadedConfig } from "flowkit";
+import { loadConfig, type LoadedConfig } from "@db-lyon/flowkit";
 import { FlowConfigSchema, type FlowConfig } from "./schema.js";
+import type { ToolDef } from "../types.js";
 
 /**
- * Load ue-mcp.yml if it exists in the given directory.
- * Returns null if no ue-mcp.yml is found (config is optional).
+ * Build the defaults object from tool definitions.
+ * This is the runtime equivalent of scripts/generate-default-config.ts.
  */
-export function loadFlowConfig(configDir?: string): LoadedConfig<FlowConfig> | null {
+export function buildDefaults(tools: ToolDef[]): Record<string, unknown> {
+  const tasks: Record<string, unknown> = {};
+
+  for (const tool of tools) {
+    for (const [actionName, spec] of Object.entries(tool.actions)) {
+      const taskName = `${tool.name}.${actionName}`;
+      const isBridge = !!spec.bridge;
+
+      const taskDef: Record<string, unknown> = {
+        class_path: isBridge ? "ue-mcp.bridge" : taskName,
+        group: tool.name,
+      };
+      if (spec.description) taskDef.description = spec.description;
+      if (isBridge) taskDef.options = { method: spec.bridge };
+
+      tasks[taskName] = taskDef;
+    }
+  }
+
+  return { tasks, flows: {} };
+}
+
+/**
+ * Load ue-mcp.yml from the given directory, layered on top of built-in defaults.
+ * Returns the merged config even if no project ue-mcp.yml exists.
+ */
+export function loadFlowConfig(
+  tools: ToolDef[],
+  configDir?: string,
+): LoadedConfig<FlowConfig> | null {
   const dir = configDir ?? process.cwd();
   const configPath = path.join(dir, "ue-mcp.yml");
 
@@ -16,7 +46,7 @@ export function loadFlowConfig(configDir?: string): LoadedConfig<FlowConfig> | n
   return loadConfig({
     filename: "ue-mcp.yml",
     schema: FlowConfigSchema,
-    defaults: { tasks: {}, flows: {} },
+    defaults: buildDefaults(tools),
     envVar: "UE_MCP_ENV",
     configDir: dir,
   });

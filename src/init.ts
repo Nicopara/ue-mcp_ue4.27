@@ -587,9 +587,52 @@ async function init() {
   writeProjectConfig(project.projectDir!, disabled);
   ok(".ue-mcp.json written");
 
+  // 7. Scaffold ue-mcp.yml if it doesn't exist
+  const flowConfigPath = path.join(project.projectDir!, "ue-mcp.yml");
+  if (!fs.existsSync(flowConfigPath)) {
+    fs.writeFileSync(flowConfigPath, [
+      "ue-mcp:",
+      "  version: 1",
+      "",
+      "# Custom tasks — pre-fill options for built-in actions",
+      "# All 300+ built-in actions are available without listing them here.",
+      "#",
+      "# tasks:",
+      "#   import_hero:",
+      "#     class_path: ue-mcp.bridge",
+      "#     options:",
+      "#       method: import_skeletal_mesh",
+      "#       filePath: Meshes/hero_sk.fbx",
+      "#       packagePath: /Game/Characters/Hero",
+      "",
+      "tasks: {}",
+      "",
+      "# Flows compose tasks into repeatable multi-step sequences.",
+      "#",
+      "# flows:",
+      "#   fresh_level:",
+      "#     description: Blank level with basic lighting",
+      "#     steps:",
+      "#       1:",
+      "#         task: level.create",
+      "#         options:",
+      "#           name: Sandbox",
+      "#       2:",
+      "#         task: level.spawn_light",
+      "#         options:",
+      "#           type: DirectionalLight",
+      "",
+      "flows: {}",
+      "",
+    ].join("\n"));
+    ok("ue-mcp.yml created (custom tasks & flows)");
+  } else {
+    ok("ue-mcp.yml already exists");
+  }
+
   console.log("");
 
-  // 7. MCP client configuration — interactive
+  // 8. MCP client configuration — interactive
   const clients = detectMcpClients(project.projectDir!);
   const detected = clients.filter((c) => c.detected);
   let clientStates: boolean[] = [];
@@ -628,7 +671,7 @@ async function init() {
     console.log("");
   }
 
-  // 8. Claude Code hooks
+  // 9. Claude Code hooks
   const configuredClaudeCode = detected.some(
     (c, i) => c.name.startsWith("Claude Code") && clientStates[i],
   );
@@ -666,7 +709,7 @@ async function init() {
     }
   }
 
-  // 9. Done
+  // 10. Done
   console.log("");
   console.log(`  ${BOLD}${GREEN}Setup complete!${RESET}`);
   console.log("");

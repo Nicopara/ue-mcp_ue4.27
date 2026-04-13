@@ -17,6 +17,7 @@ export interface ToolDef {
 }
 
 export interface ActionSpec {
+  description?: string;
   bridge?: string;
   mapParams?: (p: Record<string, unknown>) => Record<string, unknown>;
   handler?: (ctx: ToolContext, params: Record<string, unknown>) => Promise<unknown>;
@@ -26,13 +27,22 @@ export function categoryTool(
   name: string,
   summary: string,
   actions: Record<string, ActionSpec>,
-  actionDocs: string,
+  actionDocs?: string,
   extraSchema?: Record<string, z.ZodType>,
 ): ToolDef {
   const actionNames = Object.keys(actions) as [string, ...string[]];
+
+  // Auto-generate action docs from per-action descriptions if not provided
+  const docs = actionDocs ?? actionNames
+    .map((a) => {
+      const desc = actions[a].description;
+      return desc ? `- ${a}: ${desc}` : `- ${a}`;
+    })
+    .join("\n");
+
   return {
     name,
-    description: `${summary}\n\nActions:\n${actionDocs}`,
+    description: `${summary}\n\nActions:\n${docs}`,
     schema: {
       action: z.enum(actionNames).describe("Action to perform"),
       ...extraSchema,
@@ -61,12 +71,15 @@ function stripAction(params: Record<string, unknown>): Record<string, unknown> {
   return rest;
 }
 
-export function bp(bridge: string, mapParams?: (p: Record<string, unknown>) => Record<string, unknown>): ActionSpec {
-  return { bridge, mapParams };
-}
-
-export function bpSame(): ActionSpec {
-  return {};
+export function bp(bridge: string, mapParams?: (p: Record<string, unknown>) => Record<string, unknown>): ActionSpec;
+export function bp(description: string, bridge: string, mapParams?: (p: Record<string, unknown>) => Record<string, unknown>): ActionSpec;
+export function bp(...args: unknown[]): ActionSpec {
+  // bp(bridge) or bp(bridge, mapParams) — no description
+  // bp(description, bridge) or bp(description, bridge, mapParams) — with description
+  if (args.length >= 2 && typeof args[0] === "string" && typeof args[1] === "string") {
+    return { description: args[0] as string, bridge: args[1] as string, mapParams: args[2] as ((p: Record<string, unknown>) => Record<string, unknown>) | undefined };
+  }
+  return { bridge: args[0] as string, mapParams: args[1] as ((p: Record<string, unknown>) => Record<string, unknown>) | undefined };
 }
 
 /* ── Directive response ─────────────────────────────────────────────

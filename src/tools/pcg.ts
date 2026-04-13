@@ -6,31 +6,20 @@ export const pcgTool: ToolDef = categoryTool(
   "pcg",
   "Procedural Content Generation: graphs, nodes, connections, execution, volumes.",
   {
-    list_graphs:          bp("list_pcg_graphs"),
-    read_graph:           bp("read_pcg_graph"),
-    read_node_settings:   bp("read_pcg_node_settings"),
-    get_components:       bp("get_pcg_components"),
-    get_component_details: bp("get_pcg_component_details"),
-    create_graph:         bp("create_pcg_graph"),
-    add_node:             bp("add_pcg_node"),
-    connect_nodes:        bp("connect_pcg_nodes"),
-    set_node_settings:    bp("set_pcg_node_settings"),
-    remove_node:          bp("remove_pcg_node"),
-    execute:              bp("execute_pcg_graph"),
-    add_volume:           bp("add_pcg_volume"),
+    list_graphs:          bp("List PCG graphs. Params: directory?, recursive?", "list_pcg_graphs"),
+    read_graph:           bp("Read graph structure. Params: assetPath", "read_pcg_graph"),
+    read_node_settings:   bp("Read node settings. Params: assetPath, nodeName", "read_pcg_node_settings"),
+    get_components:       bp("List PCG components in level", "get_pcg_components"),
+    get_component_details: bp("Inspect PCG component. Params: actorLabel", "get_pcg_component_details"),
+    create_graph:         bp("Create graph. Params: name, packagePath?", "create_pcg_graph"),
+    add_node:             bp("Add node. Params: assetPath, nodeType, nodeName?", "add_pcg_node"),
+    connect_nodes:        bp("Wire nodes. Params: assetPath, sourceNode, sourcePin, targetNode, targetPin", "connect_pcg_nodes"),
+    set_node_settings:    bp("Set node params. Params: assetPath, nodeName, settings", "set_pcg_node_settings"),
+    remove_node:          bp("Remove node. Params: assetPath, nodeName", "remove_pcg_node"),
+    execute:              bp("Regenerate PCG. Params: actorLabel", "execute_pcg_graph"),
+    add_volume:           bp("Place PCG volume. Params: graphPath, location?, extent?", "add_pcg_volume"),
   },
-  `- list_graphs: List PCG graphs. Params: directory?, recursive?
-- read_graph: Read graph structure. Params: assetPath
-- read_node_settings: Read node settings. Params: assetPath, nodeName
-- get_components: List PCG components in level
-- get_component_details: Inspect component. Params: actorLabel
-- create_graph: Create graph. Params: name, packagePath?
-- add_node: Add node. Params: assetPath, nodeType, nodeName?
-- connect_nodes: Wire nodes. Params: assetPath, sourceNode, sourcePin, targetNode, targetPin
-- set_node_settings: Set node params. Params: assetPath, nodeName, settings
-- remove_node: Remove node. Params: assetPath, nodeName
-- execute: Regenerate PCG. Params: actorLabel
-- add_volume: Place PCG volume. Params: graphPath, location?, extent?`,
+  undefined,
   {
     assetPath: z.string().optional(), actorLabel: z.string().optional(),
     directory: z.string().optional(), recursive: z.boolean().optional(),

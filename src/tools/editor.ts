@@ -8,25 +8,27 @@ export const editorTool: ToolDef = categoryTool(
   "editor",
   "Editor commands, Python execution, PIE, undo/redo, hot reload, viewport, performance, sequencer, build pipeline, logs, editor control.",
   {
-    // Editor Control
     start_editor: {
+      description: "Launch Unreal Editor with the current project",
       handler: async (ctx: ToolContext) => {
         return startEditor(ctx.project);
       },
     },
     stop_editor: {
+      description: "Close Unreal Editor gracefully",
       handler: async () => {
         return stopEditor();
       },
     },
     restart_editor: {
+      description: "Stop then start the editor",
       handler: async (ctx: ToolContext) => {
         return restartEditor(ctx.project, ctx.bridge);
       },
     },
-    // Editor Commands
-    execute_command: bp("execute_command"),
+    execute_command: bp("Run console command. Params: command", "execute_command"),
     execute_python: {
+      description: "Run Python in editor. Params: code",
       handler: async (ctx: ToolContext, params: Record<string, unknown>) => {
         const code = (params.code as string) ?? "";
         const result = await ctx.bridge.call("execute_python", { code });
@@ -60,86 +62,44 @@ export const editorTool: ToolDef = categoryTool(
         );
       },
     },
-    set_property: bp("set_property"),
-    play_in_editor: bp("pie_control", (p) => ({ action: p.pieAction ?? "status" })),
-    get_runtime_value: bp("get_runtime_value"),
-    hot_reload: bp("hot_reload"),
-    undo: bp("undo"),
-    redo: bp("redo"),
-    get_perf_stats: bp("get_editor_performance_stats"),
-    run_stat: bp("run_stat_command"),
-    set_scalability: bp("set_scalability"),
-    capture_screenshot: bp("capture_screenshot"),
-    get_viewport: bp("get_viewport_info"),
-    set_viewport: bp("set_viewport_camera"),
-    focus_on_actor: bp("focus_viewport_on_actor"),
-    create_sequence: bp("create_level_sequence"),
-    get_sequence_info: bp("get_sequence_info"),
-    add_sequence_track: bp("add_sequence_track"),
-    play_sequence: bp("play_sequence", (p) => ({ assetPath: p.assetPath, action: p.sequenceAction ?? "play" })),
-    // Build Pipeline
-    build_all: bp("build_all"),
-    build_geometry: bp("build_geometry"),
-    build_hlod: bp("build_hlod"),
-    validate_assets: bp("validate_assets"),
-    get_build_status: bp("get_build_status"),
-    cook_content: bp("cook_content"),
-    // Logs
-    get_log: bp("get_output_log"),
-    search_log: bp("search_log"),
-    get_message_log: bp("get_message_log"),
-    // Crash Handling
-    list_crashes: bp("list_crashes"),
-    get_crash_info: bp("get_crash_info"),
-    check_for_crashes: bp("check_for_crashes"),
-    // Dialogs
-    set_dialog_policy: bp("set_dialog_policy"),
-    clear_dialog_policy: bp("clear_dialog_policy"),
-    get_dialog_policy: bp("get_dialog_policy"),
-    list_dialogs: bp("list_dialogs"),
-    respond_to_dialog: bp("respond_to_dialog"),
-    // Asset Editor
-    open_asset: bp("open_asset"),
-    // Dev
-    reload_bridge: bp("reload_handlers"),
+    set_property: bp("Set UObject property. Params: objectPath, propertyName, value", "set_property"),
+    play_in_editor: bp("PIE control. Params: pieAction (start|stop|status)", "pie_control", (p) => ({ action: p.pieAction ?? "status" })),
+    get_runtime_value: bp("Read PIE actor value. Params: actorLabel, propertyName", "get_runtime_value"),
+    hot_reload: bp("Hot reload C++", "hot_reload"),
+    undo: bp("Undo last transaction", "undo"),
+    redo: bp("Redo last transaction", "redo"),
+    get_perf_stats: bp("Editor performance stats", "get_editor_performance_stats"),
+    run_stat: bp("Run stat command. Params: command", "run_stat_command"),
+    set_scalability: bp("Set quality. Params: level", "set_scalability"),
+    capture_screenshot: bp("Screenshot. Params: filename?, resolution?", "capture_screenshot"),
+    get_viewport: bp("Get viewport camera", "get_viewport_info"),
+    set_viewport: bp("Set viewport camera. Params: location?, rotation?", "set_viewport_camera"),
+    focus_on_actor: bp("Focus on actor. Params: actorLabel", "focus_viewport_on_actor"),
+    create_sequence: bp("Create Level Sequence. Params: name, packagePath?", "create_level_sequence"),
+    get_sequence_info: bp("Read sequence. Params: assetPath", "get_sequence_info"),
+    add_sequence_track: bp("Add track. Params: assetPath, trackType, actorLabel?", "add_sequence_track"),
+    play_sequence: bp("Play/stop/pause sequence. Params: assetPath, sequenceAction", "play_sequence", (p) => ({ assetPath: p.assetPath, action: p.sequenceAction ?? "play" })),
+    build_all: bp("Build all (geometry, lighting, paths, HLOD)", "build_all"),
+    build_geometry: bp("Rebuild BSP geometry", "build_geometry"),
+    build_hlod: bp("Build HLODs", "build_hlod"),
+    validate_assets: bp("Run data validation. Params: directory?", "validate_assets"),
+    get_build_status: bp("Get build/map status", "get_build_status"),
+    cook_content: bp("Cook content. Params: platform?", "cook_content"),
+    get_log: bp("Read output log. Params: maxLines?, filter?, category?", "get_output_log"),
+    search_log: bp("Search log. Params: query", "search_log"),
+    get_message_log: bp("Read message log. Params: logName?", "get_message_log"),
+    list_crashes: bp("List crash reports", "list_crashes"),
+    get_crash_info: bp("Get crash details. Params: crashFolder", "get_crash_info"),
+    check_for_crashes: bp("Check for recent crashes", "check_for_crashes"),
+    set_dialog_policy: bp("Auto-respond to dialogs matching a pattern. Params: pattern, response", "set_dialog_policy"),
+    clear_dialog_policy: bp("Clear dialog policies. Params: pattern?", "clear_dialog_policy"),
+    get_dialog_policy: bp("Get current dialog policies", "get_dialog_policy"),
+    list_dialogs: bp("List active modal dialogs", "list_dialogs"),
+    respond_to_dialog: bp("Click a button on the active modal dialog. Params: buttonIndex?, buttonLabel?", "respond_to_dialog"),
+    open_asset: bp("Open asset in its editor. Params: assetPath", "open_asset"),
+    reload_bridge: bp("Hot-reload Python bridge handlers from disk", "reload_handlers"),
   },
-  `- start_editor: Launch Unreal Editor with the current project. No params.
-- stop_editor: Close Unreal Editor gracefully (allows save dialogs). No params.
-- restart_editor: Stop then start the editor. No params.
-- execute_command: Run console command. Params: command
-- execute_python: Run Python in editor. Params: code
-- set_property: Set UObject property. Params: objectPath, propertyName, value
-- play_in_editor: PIE control. Params: pieAction ('start'|'stop'|'status')
-- get_runtime_value: Read PIE actor value. Params: actorLabel, propertyName
-- hot_reload: Hot reload C++
-- undo/redo: Undo/redo last transaction
-- get_perf_stats: Editor performance stats
-- run_stat: Run stat command. Params: command
-- set_scalability: Set quality. Params: level
-- capture_screenshot: Screenshot. Params: filename?, resolution?
-- get_viewport: Get viewport camera
-- set_viewport: Set viewport camera. Params: location?, rotation?
-- focus_on_actor: Focus on actor. Params: actorLabel
-- create_sequence: Create Level Sequence. Params: name, packagePath?
-- get_sequence_info: Read sequence. Params: assetPath
-- add_sequence_track: Add track. Params: assetPath, trackType, actorLabel?
-- play_sequence: Play/stop/pause. Params: assetPath, sequenceAction
-- build_all: Build all (geometry, lighting, paths, HLOD)
-- build_geometry: Rebuild BSP geometry
-- build_hlod: Build HLODs
-- validate_assets: Run data validation. Params: directory?
-- get_build_status: Get build/map status
-- cook_content: Cook content. Params: platform?
-- get_log: Read output log. Params: maxLines?, filter?, category?
-- search_log: Search log. Params: query
-- get_message_log: Read message log. Params: logName?
-- set_dialog_policy: Auto-respond to dialogs matching a pattern. Params: pattern, response ('yes'|'no'|'ok'|'cancel'|'retry'|'continue'|'yesall'|'noall')
-- clear_dialog_policy: Clear dialog policies. Params: pattern? (omit to clear all)
-- get_dialog_policy: Get current dialog policies
-- list_dialogs: List active modal dialogs with title, message, and button labels
-- respond_to_dialog: Click a button on the active modal dialog. Params: buttonIndex? or buttonLabel?, action? ('escape')
-- open_asset: Open asset in its editor (e.g. Material Editor, Animation Editor). Params: assetPath
-- reload_bridge: Hot-reload all Python bridge handlers from disk (no editor restart needed)`,
+  undefined,
   {
     command: z.string().optional(),
     code: z.string().optional(),

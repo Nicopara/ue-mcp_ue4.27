@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { EngineConfigSchema } from "flowkit";
+import { EngineConfigSchema } from "@db-lyon/flowkit";
 
 export const FlowVersionSchema = z.object({
   version: z.literal(1),

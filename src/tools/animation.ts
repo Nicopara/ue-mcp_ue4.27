@@ -6,81 +6,39 @@ export const animationTool: ToolDef = categoryTool(
   "animation",
   "Animation assets, skeletons, montages, blendspaces, anim blueprints, physics assets.",
   {
-    read_anim_blueprint:  bp("read_anim_blueprint"),
-    read_montage:         bp("read_anim_montage", (p) => ({ assetPath: p.assetPath })),
-    read_sequence:        bp("read_anim_sequence", (p) => ({ assetPath: p.assetPath })),
-    read_blendspace:      bp("read_blendspace", (p) => ({ assetPath: p.assetPath })),
-    list:                 bp("list_anim_assets"),
-    create_montage:       bp("create_anim_montage"),
-    create_anim_blueprint: bp("create_anim_blueprint"),
-    create_blendspace:    bp("create_blendspace"),
-    add_notify:           bp("add_anim_notify"),
-    get_skeleton_info:    bp("get_skeleton_info"),
-    list_sockets:         bp("list_sockets"),
-    list_skeletal_meshes: bp("list_skeletal_meshes"),
-    get_physics_asset:    bp("get_physics_asset_info"),
-    create_sequence:      bp("create_sequence"),
-    set_bone_keyframes:   bp("set_bone_keyframes"),
-    get_bone_transforms:  bp("get_bone_transforms"),
-    set_montage_sequence: bp("set_montage_sequence"),
-    set_montage_properties: bp("set_montage_properties"),
-
-    // State machine authoring
-    create_state_machine: bp("create_state_machine"),
-    add_state:            bp("add_state"),
-    add_transition:       bp("add_transition"),
-    set_state_animation:  bp("set_state_animation"),
-    set_transition_blend: bp("set_transition_blend"),
-    read_state_machine:   bp("read_state_machine"),
-
-    // AnimGraph inspection (#23 / #91)
-    read_anim_graph:      bp("read_anim_graph"),
-
-    // Float curve authoring (#79 / #24)
-    add_curve:            bp("add_curve"),
-
-    // Montage slot & section editing (#78, #27)
-    set_montage_slot:     bp("set_montage_slot"),
-    add_montage_section:  bp("add_montage_section"),
-
-    // IK Rig (#93)
-    create_ik_rig:        bp("create_ik_rig"),
-    read_ik_rig:          bp("read_ik_rig"),
-
-    // Control Rig (#11)
-    list_control_rig_variables: bp("list_control_rig_variables"),
+    read_anim_blueprint:  bp("Read AnimBP structure. Params: assetPath", "read_anim_blueprint"),
+    read_montage:         bp("Read montage. Params: assetPath", "read_anim_montage", (p) => ({ assetPath: p.assetPath })),
+    read_sequence:        bp("Read anim sequence. Params: assetPath", "read_anim_sequence", (p) => ({ assetPath: p.assetPath })),
+    read_blendspace:      bp("Read blendspace. Params: assetPath", "read_blendspace", (p) => ({ assetPath: p.assetPath })),
+    list:                 bp("List anim assets. Params: directory?, recursive?", "list_anim_assets"),
+    create_montage:       bp("Create montage. Params: animSequencePath, name?, packagePath?", "create_anim_montage"),
+    create_anim_blueprint: bp("Create AnimBP. Params: skeletonPath, name?, packagePath?, parentClass?", "create_anim_blueprint"),
+    create_blendspace:    bp("Create blendspace. Params: skeletonPath, name?, packagePath?, axisHorizontal?, axisVertical?", "create_blendspace"),
+    add_notify:           bp("Add notify. Params: assetPath, notifyName, triggerTime, notifyClass?", "add_anim_notify"),
+    get_skeleton_info:    bp("Read skeleton. Params: assetPath", "get_skeleton_info"),
+    list_sockets:         bp("List sockets. Params: assetPath", "list_sockets"),
+    list_skeletal_meshes: bp("List skeletal meshes. Params: directory?, recursive?", "list_skeletal_meshes"),
+    get_physics_asset:    bp("Read physics asset. Params: assetPath", "get_physics_asset_info"),
+    create_sequence:      bp("Create blank AnimSequence. Params: name, skeletonPath, packagePath?, numFrames?, frameRate?", "create_sequence"),
+    set_bone_keyframes:   bp("Set bone transform keyframes. Params: assetPath, boneName, keyframes", "set_bone_keyframes"),
+    get_bone_transforms:  bp("Read reference pose transforms. Params: skeletonPath, boneNames?", "get_bone_transforms"),
+    set_montage_sequence: bp("Replace animation sequence in a montage. Params: assetPath, animSequencePath, slotIndex?", "set_montage_sequence"),
+    set_montage_properties: bp("Set montage properties. Params: assetPath, sequenceLength?, rateScale?, blendIn?, blendOut?", "set_montage_properties"),
+    create_state_machine: bp("Create state machine in AnimBP. Params: assetPath, name?, graphName?", "create_state_machine"),
+    add_state:            bp("Add state to a state machine. Params: assetPath, stateMachineName, stateName", "add_state"),
+    add_transition:       bp("Add directed transition between states. Params: assetPath, stateMachineName, fromState, toState", "add_transition"),
+    set_state_animation:  bp("Assign anim asset to state. Params: assetPath, stateMachineName, stateName, animAssetPath", "set_state_animation"),
+    set_transition_blend: bp("Set blend type/duration on transition. Params: assetPath, stateMachineName, fromState, toState, blendDuration?, blendLogic?", "set_transition_blend"),
+    read_state_machine:   bp("Read state machine topology. Params: assetPath, stateMachineName", "read_state_machine"),
+    read_anim_graph:      bp("Read AnimBP AnimGraph nodes with properties & pins. Params: assetPath, graphName?", "read_anim_graph"),
+    add_curve:            bp("Add float curve to AnimSequence. Params: assetPath, curveName, curveType?", "add_curve"),
+    set_montage_slot:     bp("Set slot name on a montage track. Params: assetPath, slotName, trackIndex?", "set_montage_slot"),
+    add_montage_section:  bp("Add composite section to montage. Params: assetPath, sectionName, startTime?, linkedSection?", "add_montage_section"),
+    create_ik_rig:        bp("Create IKRigDefinition asset. Params: name, skeletalMeshPath, packagePath?", "create_ik_rig"),
+    read_ik_rig:          bp("Read IK Rig chains, solvers, skeleton. Params: assetPath", "read_ik_rig"),
+    list_control_rig_variables: bp("List ControlRig variables and hierarchy. Params: assetPath", "list_control_rig_variables"),
   },
-  `- read_anim_blueprint: Read AnimBP structure. Params: assetPath
-- read_montage: Read montage. Params: assetPath
-- read_sequence: Read anim sequence. Params: assetPath
-- read_blendspace: Read blendspace. Params: assetPath
-- list: List anim assets. Params: directory?, recursive?
-- create_montage: Create montage. Params: animSequencePath, name?, packagePath?
-- create_anim_blueprint: Create AnimBP. Params: skeletonPath, name?, packagePath?, parentClass? (e.g. "MyAnimInstance")
-- create_blendspace: Create blendspace. Params: skeletonPath, name?, packagePath?, axisHorizontal?, axisVertical?
-- add_notify: Add notify. Params: assetPath, notifyName, triggerTime, notifyClass?
-- get_skeleton_info: Read skeleton. Params: assetPath
-- list_sockets: List sockets. Params: assetPath
-- list_skeletal_meshes: List skeletal meshes. Params: directory?, recursive?
-- get_physics_asset: Read physics asset. Params: assetPath
-- create_sequence: Create blank AnimSequence. Params: name, skeletonPath, packagePath?, numFrames?, frameRate?
-- set_bone_keyframes: Set bone transform keyframes. Params: assetPath, boneName, keyframes (array of {frame, location?, rotation?, scale?})
-- get_bone_transforms: Read reference pose transforms. Params: skeletonPath, boneNames? (array filter)
-- set_montage_sequence: Replace animation sequence in a montage (auto-updates montage duration). Params: assetPath, animSequencePath, slotIndex?
-- set_montage_properties: Set montage properties directly. Params: assetPath, sequenceLength?, rateScale?, blendIn?, blendOut?
-- create_state_machine: Create state machine in AnimBP AnimGraph. Params: assetPath, name?, graphName?
-- add_state: Add state to a state machine. Params: assetPath, stateMachineName, stateName
-- add_transition: Add directed transition between states. Params: assetPath, stateMachineName, fromState, toState
-- set_state_animation: Assign anim asset to state. Params: assetPath, stateMachineName, stateName, animAssetPath
-- set_transition_blend: Set blend type/duration on transition. Params: assetPath, stateMachineName, fromState, toState, blendDuration?, blendLogic? (Standard|Inertialization)
-- read_state_machine: Read state machine topology. Params: assetPath, stateMachineName
-- read_anim_graph: Read AnimBP AnimGraph nodes with properties & pins. Params: assetPath, graphName? (default: AnimGraph)
-- add_curve: Add float curve to AnimSequence. Params: assetPath, curveName, curveType? (default: float)
-- set_montage_slot: Set slot name on a montage track. Params: assetPath, slotName, trackIndex? (default: 0)
-- add_montage_section: Add composite section to montage. Params: assetPath, sectionName, startTime?, linkedSection?
-- create_ik_rig: Create IKRigDefinition asset. Params: name, skeletalMeshPath, packagePath?
-- read_ik_rig: Read IK Rig chains, solvers, skeleton. Params: assetPath
-- list_control_rig_variables: List ControlRig variables and hierarchy. Params: assetPath`,
+  undefined,
   {
     assetPath: z.string().optional(),
     directory: z.string().optional(),

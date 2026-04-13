@@ -98,6 +98,7 @@ export const projectTool: ToolDef = categoryTool(
   "Project status, config INI files, and C++ source inspection.",
   {
     get_status: {
+      description: "Check server mode and editor connection",
       handler: async (ctx) => ({
         mode: ctx.bridge.isConnected ? "live" : "disconnected",
         editorConnected: ctx.bridge.isConnected,
@@ -105,6 +106,7 @@ export const projectTool: ToolDef = categoryTool(
       }),
     },
     set_project: {
+      description: "Switch project. Params: projectPath",
       handler: async (ctx, p) => {
         ctx.project.setProject(p.projectPath as string);
         const result = deploy(ctx.project);
@@ -113,12 +115,14 @@ export const projectTool: ToolDef = categoryTool(
       },
     },
     get_info: {
+      description: "Read .uproject file details",
       handler: async (ctx) => {
         ctx.project.ensureLoaded();
         return { projectName: ctx.project.projectName, engineAssociation: ctx.project.engineAssociation, contentDir: ctx.project.contentDir, uprojectContents: JSON.parse(fs.readFileSync(ctx.project.projectPath!, "utf-8")) };
       },
     },
     read_config: {
+      description: "Read INI config. Params: configName (e.g. 'Engine', 'Game')",
       handler: async (ctx, p) => {
         ctx.project.ensureLoaded();
         const filePath = resolveConfigPath(ctx.project.configDir!, p.configName as string);
@@ -128,6 +132,7 @@ export const projectTool: ToolDef = categoryTool(
       },
     },
     search_config: {
+      description: "Search INI files. Params: query",
       handler: async (ctx, p) => {
         ctx.project.ensureLoaded();
         const configDir = ctx.project.configDir!;
@@ -146,6 +151,7 @@ export const projectTool: ToolDef = categoryTool(
       },
     },
     list_config_tags: {
+      description: "Extract gameplay tags from config",
       handler: async (ctx) => {
         ctx.project.ensureLoaded();
         const configDir = ctx.project.configDir!;
@@ -165,6 +171,7 @@ export const projectTool: ToolDef = categoryTool(
       },
     },
     read_cpp_header: {
+      description: "Parse a .h file. Params: headerPath",
       handler: async (ctx, p) => {
         ctx.project.ensureLoaded();
         const headerPath = p.headerPath as string;
@@ -174,6 +181,7 @@ export const projectTool: ToolDef = categoryTool(
       },
     },
     read_module: {
+      description: "Read module source. Params: moduleName",
       handler: async (ctx, p) => {
         ctx.project.ensureLoaded();
         const sourceDir = path.join(ctx.project.projectDir!, "Source");
@@ -187,6 +195,7 @@ export const projectTool: ToolDef = categoryTool(
       },
     },
     list_modules: {
+      description: "List C++ modules",
       handler: async (ctx) => {
         ctx.project.ensureLoaded();
         const sourceDir = path.join(ctx.project.projectDir!, "Source");
@@ -196,6 +205,7 @@ export const projectTool: ToolDef = categoryTool(
       },
     },
     search_cpp: {
+      description: "Search .h/.cpp files. Params: query, directory?",
       handler: async (ctx, p) => {
         ctx.project.ensureLoaded();
         const sourceDir = path.join(ctx.project.projectDir!, "Source");
@@ -219,23 +229,11 @@ export const projectTool: ToolDef = categoryTool(
         return { query: p.query, directory: p.directory ?? "(all)", resultCount: results.length, results };
       },
     },
-    set_config: bp("set_config"),
-    build: bp("build_project"),
-    generate_project_files: bp("generate_project_files"),
+    set_config: bp("Write to INI. Params: configName, section, key, value", "set_config"),
+    build: bp("Build C++ project. Params: configuration?, platform?, clean?", "build_project"),
+    generate_project_files: bp("Generate IDE project files (Visual Studio, Xcode, etc.)", "generate_project_files"),
   },
-  `- get_status: Check server mode and editor connection
-- set_project: Switch project. Params: projectPath
-- get_info: Read .uproject file details
-- read_config: Read INI config. Params: configName (e.g. 'Engine', 'Game')
-- search_config: Search INI files. Params: query
-- list_config_tags: Extract gameplay tags from config
-- set_config: Write to INI. Params: configName, section, key, value
-- read_cpp_header: Parse a .h file. Params: headerPath
-- read_module: Read module source. Params: moduleName
-- list_modules: List C++ modules
-- search_cpp: Search .h/.cpp files. Params: query, directory?
-- build: Build C++ project. Params: configuration? (Development|Debug|Shipping), platform? (Win64|Linux|Mac), clean?
-- generate_project_files: Generate IDE project files (Visual Studio, Xcode, etc.)`,
+  undefined,
   {
     projectPath: z.string().optional().describe("For set_project: path to .uproject"),
     configName: z.string().optional().describe("For read_config/set_config: config file name"),

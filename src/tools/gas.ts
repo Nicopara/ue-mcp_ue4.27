@@ -5,25 +5,17 @@ export const gasTool: ToolDef = categoryTool(
   "gas",
   "Gameplay Ability System: abilities, effects, attribute sets, cues.",
   {
-    add_asc:             bp("add_ability_system_component"),
-    create_attribute_set: bp("create_attribute_set"),
-    add_attribute:       bp("add_attribute"),
-    create_ability:      bp("create_gameplay_ability"),
-    set_ability_tags:    bp("set_ability_tags"),
-    create_effect:       bp("create_gameplay_effect"),
-    set_effect_modifier: bp("set_effect_modifier"),
-    create_cue:          bp("create_gameplay_cue"),
-    get_info:            bp("get_gas_info"),
+    add_asc:             bp("Add AbilitySystemComponent. Params: blueprintPath, componentName?", "add_ability_system_component"),
+    create_attribute_set: bp("Create AttributeSet BP. Params: name, packagePath?", "create_attribute_set"),
+    add_attribute:       bp("Add attribute to set. Params: attributeSetPath, attributeName, defaultValue?", "add_attribute"),
+    create_ability:      bp("Create GameplayAbility BP. Params: name, packagePath?, parentClass?", "create_gameplay_ability"),
+    set_ability_tags:    bp("Set tags on ability. Params: abilityPath, ability_tags?, cancel_abilities_with_tag?, activation_required_tags?, activation_blocked_tags?", "set_ability_tags"),
+    create_effect:       bp("Create GameplayEffect BP. Params: name, packagePath?, durationPolicy?", "create_gameplay_effect"),
+    set_effect_modifier: bp("Add modifier. Params: effectPath, attribute, operation?, magnitude?", "set_effect_modifier"),
+    create_cue:          bp("Create GameplayCue. Params: name, packagePath?, cueType?", "create_gameplay_cue"),
+    get_info:            bp("Inspect GAS setup. Params: blueprintPath", "get_gas_info"),
   },
-  `- add_asc: Add AbilitySystemComponent. Params: blueprintPath, componentName?
-- create_attribute_set: Create AttributeSet BP. Params: name, packagePath?
-- add_attribute: Add attribute to set. Params: attributeSetPath, attributeName, defaultValue?
-- create_ability: Create GameplayAbility BP. Params: name, packagePath?, parentClass?
-- set_ability_tags: Set tags on ability. Params: abilityPath, ability_tags?, cancel_abilities_with_tag?, activation_required_tags?, activation_blocked_tags?
-- create_effect: Create GameplayEffect BP. Params: name, packagePath?, durationPolicy? (Instant|HasDuration|Infinite)
-- set_effect_modifier: Add modifier. Params: effectPath, attribute, operation?, magnitude?
-- create_cue: Create GameplayCue. Params: name, packagePath?, cueType? (Static|Actor)
-- get_info: Inspect GAS setup. Params: blueprintPath`,
+  undefined,
   {
     blueprintPath: z.string().optional(),
     name: z.string().optional(),

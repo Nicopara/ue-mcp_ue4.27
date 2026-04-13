@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { FlowRunner } from "flowkit";
-import type { TaskRegistry, FlowRunResult, TaskDefinition, FlowDefinition } from "flowkit";
+import { FlowRunner } from "@db-lyon/flowkit";
+import type { TaskRegistry, FlowRunResult, TaskDefinition, FlowDefinition } from "@db-lyon/flowkit";
 import type { FlowContext } from "./context.js";
 import type { FlowConfig } from "./schema.js";
 import type { ToolDef, ToolContext } from "../types.js";

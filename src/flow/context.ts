@@ -1,4 +1,4 @@
-import type { TaskContext } from "flowkit";
+import type { TaskContext } from "@db-lyon/flowkit";
 import type { IBridge } from "../bridge.js";
 import type { ProjectContext } from "../project.js";
 

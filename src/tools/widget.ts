@@ -5,35 +5,22 @@ export const widgetTool: ToolDef = categoryTool(
   "widget",
   "UMG Widget Blueprints, Editor Utility Widgets, and Editor Utility Blueprints.",
   {
-    read_tree:         bp("read_widget_tree"),
-    get_details:       bp("get_widget_details"),
-    set_property:      bp("set_widget_property"),
-    list:              bp("list_widget_blueprints"),
-    read_animations:   bp("read_widget_animations"),
-    create:            bp("create_widget_blueprint"),
-    create_utility_widget:    bp("create_editor_utility_widget"),
-    run_utility_widget:       bp("run_editor_utility_widget"),
-    create_utility_blueprint: bp("create_editor_utility_blueprint"),
-    run_utility_blueprint:    bp("run_editor_utility_blueprint"),
-    add_widget:               bp("add_widget"),
-    remove_widget:            bp("remove_widget"),
-    move_widget:              bp("move_widget"),
-    list_classes:             bp("list_widget_classes"),
+    read_tree:         bp("Read widget hierarchy. Params: assetPath", "read_widget_tree"),
+    get_details:       bp("Inspect widget. Params: assetPath, widgetName", "get_widget_details"),
+    set_property:      bp("Set widget property. Params: assetPath, widgetName, propertyName, value", "set_widget_property"),
+    list:              bp("List Widget BPs. Params: directory?, recursive?", "list_widget_blueprints"),
+    read_animations:   bp("Read UMG animations. Params: assetPath", "read_widget_animations"),
+    create:            bp("Create Widget BP. Params: name, packagePath?, parentClass?", "create_widget_blueprint"),
+    create_utility_widget:    bp("Create editor utility widget. Params: name, packagePath?", "create_editor_utility_widget"),
+    run_utility_widget:       bp("Open editor utility widget. Params: assetPath", "run_editor_utility_widget"),
+    create_utility_blueprint: bp("Create editor utility blueprint. Params: name, packagePath?", "create_editor_utility_blueprint"),
+    run_utility_blueprint:    bp("Run editor utility blueprint. Params: assetPath", "run_editor_utility_blueprint"),
+    add_widget:               bp("Add widget to widget tree. Params: assetPath, widgetClass, widgetName?, parentWidgetName?", "add_widget"),
+    remove_widget:            bp("Remove widget from tree. Params: assetPath, widgetName", "remove_widget"),
+    move_widget:              bp("Reparent widget. Params: assetPath, widgetName, newParentWidgetName", "move_widget"),
+    list_classes:             bp("List available widget classes", "list_widget_classes"),
   },
-  `- read_tree: Read widget hierarchy. Params: assetPath
-- get_details: Inspect widget. Params: assetPath, widgetName
-- set_property: Set widget property. Params: assetPath, widgetName, propertyName, value. Slot props: slot.anchors, slot.alignment, slot.position, slot.size, slot.autoSize, slot.zOrder (CanvasPanel); slot.padding, slot.hAlign, slot.vAlign, slot.sizeRule, slot.fillWeight (HBox/VBox/Overlay)
-- list: List Widget BPs. Params: directory?, recursive?
-- read_animations: Read UMG animations. Params: assetPath
-- create: Create Widget BP. Params: name, packagePath?, parentClass?
-- add_widget: Add widget to widget tree. Params: assetPath, widgetClass (TextBlock|CanvasPanel|Image|Button|VerticalBox|HorizontalBox|Overlay|etc.), widgetName?, parentWidgetName? (if omitted, becomes root or child of root panel)
-- remove_widget: Remove widget from tree. Params: assetPath, widgetName
-- move_widget: Reparent widget. Params: assetPath, widgetName, newParentWidgetName
-- list_classes: List available widget classes with slot property hints
-- create_utility_widget: Create editor panel. Params: name, packagePath?
-- run_utility_widget: Open editor panel. Params: assetPath
-- create_utility_blueprint: Create editor script. Params: name, packagePath?
-- run_utility_blueprint: Run editor script. Params: assetPath`,
+  undefined,
   {
     assetPath: z.string().optional(),
     widgetName: z.string().optional(),
