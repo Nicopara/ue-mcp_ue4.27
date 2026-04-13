@@ -40,6 +40,7 @@ See **[Getting Started](getting-started.md)** for installation and setup.
 - **[Getting Started](getting-started.md)** — Install, configure, verify
 - **[Architecture](architecture.md)** — How the pieces fit together
 - **[Tool Reference](tool-reference.md)** — All 19 tools with every action
+- **[Flows](flows.md)** — Multi-step workflows, custom tasks, extending built-in actions
 - **[Configuration](configuration.md)** — `.ue-mcp.json` and MCP client config
 - **[Neon Shrine Demo](neon-shrine-demo.md)** — Interactive demo walkthrough
 - **[Feedback](feedback.md)** — Agent feedback system for improving UE-MCP
