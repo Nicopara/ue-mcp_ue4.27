@@ -67,7 +67,7 @@ async function main() {
 
   const server = new McpServer({
     name: "ue-mcp",
-    version: "0.6.3",
+    version: "0.6.4",
   }, {
     instructions: SERVER_INSTRUCTIONS,
   });
@@ -143,14 +143,21 @@ async function main() {
   }
 
   // ── Load ue-mcp.yml and register flow tool ──────────────────────
-  const flowLoaded = loadFlowConfig(ALL_TOOLS, project.projectDir ?? undefined);
-  const flowConfig: FlowConfig = flowLoaded?.config ?? { tasks: {}, flows: {} };
+  const configDir = project.projectDir ?? undefined;
 
-  if (flowLoaded) {
-    console.error(`[ue-mcp] ue-mcp.yml loaded — ${Object.keys(flowConfig.flows).length} flow(s), ${Object.keys(flowConfig.tasks).length} custom task(s)`);
+  // Log initial load
+  const initialLoad = loadFlowConfig(ALL_TOOLS, configDir);
+  if (initialLoad) {
+    console.error(`[ue-mcp] ue-mcp.yml loaded — ${Object.keys(initialLoad.config.flows).length} flow(s), ${Object.keys(initialLoad.config.tasks).length} custom task(s)`);
   }
 
-  const flowTool = createFlowTool(registry, flowConfig);
+  // Config is reloaded on every flow call — edit ue-mcp.yml without restarting
+  const reloadConfig = (): FlowConfig => {
+    const loaded = loadFlowConfig(ALL_TOOLS, configDir);
+    return loaded?.config ?? { tasks: {}, flows: {} };
+  };
+
+  const flowTool = createFlowTool(registry, reloadConfig);
   const flowShape: Record<string, z.ZodType> = {};
   for (const [key, schema] of Object.entries(flowTool.schema)) {
     flowShape[key] = schema;

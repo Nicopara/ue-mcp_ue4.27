@@ -7,16 +7,13 @@ import type { ToolDef, ToolContext } from "../types.js";
 
 export function createFlowTool(
   registry: TaskRegistry,
-  config: FlowConfig,
+  reloadConfig: () => FlowConfig,
 ): ToolDef {
-  const flowNames = Object.keys(config.flows);
-
   return {
     name: "flow",
     description:
-      `Run or inspect named flows defined in ue-mcp.yml.\n\n` +
-      `Available flows: ${flowNames.length > 0 ? flowNames.join(", ") : "(none — add flows to ue-mcp.yml)"}` +
-      `\n\nActions:\n` +
+      `Run or inspect named flows defined in ue-mcp.yml. Config is reloaded on every call — no restart needed.\n\n` +
+      `Actions:\n` +
       `- run: Execute a flow. Params: flowName, skip?\n` +
       `- plan: Show execution plan without running. Params: flowName\n` +
       `- list: List available flows`,
@@ -26,15 +23,15 @@ export function createFlowTool(
       skip: z.array(z.string()).optional().describe("Step names or numbers to skip"),
     },
     actions: {
-      run: { handler: async (ctx, params) => runFlow(registry, config, ctx, params) },
-      plan: { handler: async (ctx, params) => planFlow(registry, config, ctx, params) },
-      list: { handler: async () => listFlows(config) },
+      run: { handler: async (ctx, params) => runFlow(registry, reloadConfig(), ctx, params) },
+      plan: { handler: async (ctx, params) => planFlow(registry, reloadConfig(), ctx, params) },
+      list: { handler: async () => listFlows(reloadConfig()) },
     },
     handler: async (ctx, params) => {
       const action = params.action as string;
-      if (action === "list") return listFlows(config);
-      if (action === "plan") return planFlow(registry, config, ctx, params);
-      if (action === "run") return runFlow(registry, config, ctx, params);
+      if (action === "list") return listFlows(reloadConfig());
+      if (action === "plan") return planFlow(registry, reloadConfig(), ctx, params);
+      if (action === "run") return runFlow(registry, reloadConfig(), ctx, params);
       throw new Error(`Unknown flow action: ${action}`);
     },
   };
