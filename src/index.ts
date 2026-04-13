@@ -8,6 +8,11 @@ import { deploy, deploySummary } from "./deployer.js";
 import { SERVER_INSTRUCTIONS } from "./instructions.js";
 import { isDirectiveResponse, type ToolDef, type ToolContext } from "./types.js";
 import { McpError } from "./errors.js";
+import { buildFlowRegistry } from "./flow/registry.js";
+import { loadFlowConfig } from "./flow/loader.js";
+import { createFlowTool } from "./flow/flow-tool.js";
+import type { FlowContext } from "./flow/context.js";
+import type { FlowConfig } from "./flow/schema.js";
 
 import { projectTool } from "./tools/project.js";
 import { assetTool } from "./tools/asset.js";
@@ -56,9 +61,13 @@ async function main() {
   const project = new ProjectContext();
   const ctx: ToolContext = { bridge, project };
 
+  // ── Flow engine: task registry ──────────────────────────────────
+  const registry = buildFlowRegistry(ALL_TOOLS);
+  const taskCount = registry.listRegistered().length;
+
   const server = new McpServer({
     name: "ue-mcp",
-    version: "0.3.0",
+    version: "0.5.4",
   }, {
     instructions: SERVER_INSTRUCTIONS,
   });
@@ -66,6 +75,7 @@ async function main() {
   const disabled = new Set(project.config.disable ?? []);
   const tools = ALL_TOOLS.filter((t) => !disabled.has(t.name));
 
+  // ── Register category tools — dispatched through the task registry ──
   for (const tool of tools) {
     const shape: Record<string, z.ZodType> = {};
     for (const [key, schema] of Object.entries(tool.schema)) {
@@ -73,22 +83,38 @@ async function main() {
     }
 
     server.tool(tool.name, tool.description, shape, async (params) => {
+      const action = params.action as string;
+      const taskName = `${tool.name}.${action}`;
+      const { action: _, ...taskParams } = params;
+      const flowCtx: FlowContext = { bridge, project };
+
       try {
-        const result = await tool.handler(ctx, params);
+        const task = await registry.create(taskName, flowCtx, taskParams);
+        const result = await task.run();
+
+        if (!result.success) {
+          const msg = result.error?.message ?? `Task ${taskName} failed`;
+          return {
+            content: [{ type: "text" as const, text: `Error [TASK_FAILED]: ${msg}` }],
+            isError: true,
+          };
+        }
+
         const stringify = (v: unknown) =>
           typeof v === "string" ? v : JSON.stringify(v, null, 2);
 
-        if (isDirectiveResponse(result)) {
+        // Preserve directive responses (execute_python workaround tracking)
+        if (result.data?.__directive) {
           return {
             content: [
-              { type: "text" as const, text: result.directive },
-              { type: "text" as const, text: stringify(result.result) },
+              { type: "text" as const, text: result.data.directive as string },
+              { type: "text" as const, text: stringify(result.data.result) },
             ],
           };
         }
 
         return {
-          content: [{ type: "text" as const, text: stringify(result) }],
+          content: [{ type: "text" as const, text: stringify(result.data) }],
         };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -101,6 +127,7 @@ async function main() {
     });
   }
 
+  // ── Project init ─────────────────────────────────────────────────
   const projectArg = process.argv.find((a) => !a.startsWith("-") && a !== process.argv[0] && a !== process.argv[1]);
 
   if (projectArg) {
@@ -115,7 +142,31 @@ async function main() {
     }
   }
 
-  // Always try to connect to the editor bridge
+  // ── Load ue-mcp.yml and register flow tool ──────────────────────
+  const flowLoaded = loadFlowConfig(project.projectDir ?? undefined);
+  const flowConfig: FlowConfig = flowLoaded?.config ?? { tasks: {}, flows: {} };
+
+  if (flowLoaded) {
+    console.error(`[ue-mcp] ue-mcp.yml loaded — ${Object.keys(flowConfig.flows).length} flow(s), ${Object.keys(flowConfig.tasks).length} custom task(s)`);
+  }
+
+  const flowTool = createFlowTool(registry, flowConfig);
+  const flowShape: Record<string, z.ZodType> = {};
+  for (const [key, schema] of Object.entries(flowTool.schema)) {
+    flowShape[key] = schema;
+  }
+  server.tool(flowTool.name, flowTool.description, flowShape, async (params) => {
+    try {
+      const result = await flowTool.handler(ctx, params);
+      const text = typeof result === "string" ? result : JSON.stringify(result, null, 2);
+      return { content: [{ type: "text" as const, text }] };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { content: [{ type: "text" as const, text: `Error: ${msg}` }], isError: true };
+    }
+  });
+
+  // ── Bridge connection ────────────────────────────────────────────
   try {
     await bridge.connect();
     console.error("[ue-mcp] Editor bridge connected — live mode active");
@@ -127,7 +178,7 @@ async function main() {
   if (disabled.size > 0) {
     console.error(`[ue-mcp] Disabled categories: ${[...disabled].join(", ")}`);
   }
-  console.error(`[ue-mcp] Registered ${tools.length} tools (category mega-tools)`);
+  console.error(`[ue-mcp] Registered ${tools.length + 1} tools, ${taskCount} tasks (flow engine)`);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

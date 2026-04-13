@@ -64,6 +64,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
+    "flowkit": "file:../flowkit",
     "ws": "^8.18.0",
     "zod": "^3.24.0"
   },

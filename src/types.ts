@@ -13,6 +13,7 @@ export interface ToolDef {
   description: string;
   schema: Record<string, z.ZodType>;
   handler: (ctx: ToolContext, params: Record<string, unknown>) => Promise<unknown>;
+  actions: Record<string, ActionSpec>;
 }
 
 export interface ActionSpec {
@@ -36,6 +37,7 @@ export function categoryTool(
       action: z.enum(actionNames).describe("Action to perform"),
       ...extraSchema,
     },
+    actions,
     handler: async (ctx, params) => {
       const action = params.action as string;
       const spec = actions[action];
