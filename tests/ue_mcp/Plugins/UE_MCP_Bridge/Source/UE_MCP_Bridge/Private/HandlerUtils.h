@@ -34,6 +34,39 @@ inline TSharedPtr<FJsonObject> MCPSuccess()
 	return Obj;
 }
 
+/** Attach a rollback record to a result. The TS bridge lifts this onto
+ *  TaskResult.rollback so FlowRunner can invoke it on failure. */
+inline void MCPSetRollback(
+	TSharedPtr<FJsonObject> Result,
+	const FString& InverseMethod,
+	TSharedPtr<FJsonObject> Payload)
+{
+	TSharedPtr<FJsonObject> Rollback = MakeShared<FJsonObject>();
+	Rollback->SetStringField(TEXT("method"), InverseMethod);
+	Rollback->SetObjectField(TEXT("payload"), Payload);
+	Result->SetObjectField(TEXT("rollback"), Rollback);
+}
+
+/** Mark a result as "already existed, nothing created" — idempotent replay. */
+inline void MCPSetExisted(TSharedPtr<FJsonObject> Result)
+{
+	Result->SetBoolField(TEXT("existed"), true);
+	Result->SetBoolField(TEXT("created"), false);
+}
+
+/** Mark a result as "created this time". */
+inline void MCPSetCreated(TSharedPtr<FJsonObject> Result)
+{
+	Result->SetBoolField(TEXT("existed"), false);
+	Result->SetBoolField(TEXT("created"), true);
+}
+
+/** Mark a result as "updated the existing entity". */
+inline void MCPSetUpdated(TSharedPtr<FJsonObject> Result)
+{
+	Result->SetBoolField(TEXT("updated"), true);
+}
+
 // ── Parameter extraction ─────────────────────────────────────────────────────
 
 /** Extract a required string parameter.  Returns error JSON on failure, nullptr on success. */
