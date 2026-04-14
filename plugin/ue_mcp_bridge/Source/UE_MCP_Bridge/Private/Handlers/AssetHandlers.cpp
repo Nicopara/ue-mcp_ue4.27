@@ -509,11 +509,21 @@ TSharedPtr<FJsonValue> FAssetHandlers::DeleteAsset(const TSharedPtr<FJsonObject>
 	FString AssetPath;
 	if (auto Err = RequireStringAlt(Params, TEXT("path"), TEXT("assetPath"), AssetPath)) return Err;
 
+	// Idempotent: if the asset doesn't exist, treat as already-deleted.
+	if (!UEditorAssetLibrary::DoesAssetExist(AssetPath))
+	{
+		auto Result = MCPSuccess();
+		Result->SetStringField(TEXT("path"), AssetPath);
+		Result->SetBoolField(TEXT("alreadyDeleted"), true);
+		return MCPResult(Result);
+	}
+
 	bool bSuccess = UEditorAssetLibrary::DeleteAsset(AssetPath);
 
 	auto Result = MCPSuccess();
 	Result->SetStringField(TEXT("path"), AssetPath);
-	Result->SetBoolField(TEXT("success"), bSuccess);
+	Result->SetBoolField(TEXT("deleted"), bSuccess);
+	// Delete is non-reversible by default.
 
 	return MCPResult(Result);
 }
@@ -1414,6 +1424,25 @@ TSharedPtr<FJsonValue> FAssetHandlers::CreateDataTable(const TSharedPtr<FJsonObj
 	if (auto Err = RequireString(Params, TEXT("rowStruct"), RowStruct)) return Err;
 
 	FString PackagePath = OptionalString(Params, TEXT("packagePath"), TEXT("/Game/DataTables"));
+	const FString OnConflict = OptionalString(Params, TEXT("onConflict"), TEXT("skip"));
+
+	// Idempotency: check if the DataTable already exists at the target path.
+	const FString ProbePath = PackagePath + TEXT("/") + Name + TEXT(".") + Name;
+	if (UDataTable* Existing = LoadObject<UDataTable>(nullptr, *ProbePath))
+	{
+		if (OnConflict == TEXT("error"))
+		{
+			return MCPError(FString::Printf(TEXT("DataTable '%s' already exists"), *ProbePath));
+		}
+		auto ExistingResult = MCPSuccess();
+		MCPSetExisted(ExistingResult);
+		ExistingResult->SetStringField(TEXT("name"), Name);
+		ExistingResult->SetStringField(TEXT("packagePath"), PackagePath);
+		ExistingResult->SetStringField(TEXT("assetPath"), Existing->GetPathName());
+		ExistingResult->SetStringField(TEXT("rowStruct"), Existing->RowStruct ? Existing->RowStruct->GetName() : TEXT(""));
+		ExistingResult->SetNumberField(TEXT("rowCount"), Existing->GetRowMap().Num());
+		return MCPResult(ExistingResult);
+	}
 
 	// Find the row struct type
 	UScriptStruct* ScriptStruct = nullptr;
@@ -1454,13 +1483,19 @@ TSharedPtr<FJsonValue> FAssetHandlers::CreateDataTable(const TSharedPtr<FJsonObj
 	}
 
 	UDataTable* DataTable = Cast<UDataTable>(NewAsset);
+	const FString AssetPath = NewAsset->GetPathName();
 
 	auto Result = MCPSuccess();
+	MCPSetCreated(Result);
 	Result->SetStringField(TEXT("name"), Name);
 	Result->SetStringField(TEXT("packagePath"), PackagePath);
-	Result->SetStringField(TEXT("assetPath"), NewAsset->GetPathName());
+	Result->SetStringField(TEXT("assetPath"), AssetPath);
 	Result->SetStringField(TEXT("rowStruct"), ScriptStruct->GetName());
 	Result->SetNumberField(TEXT("rowCount"), DataTable ? DataTable->GetRowMap().Num() : 0);
+
+	TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+	Payload->SetStringField(TEXT("assetPath"), AssetPath);
+	MCPSetRollback(Result, TEXT("delete_asset"), Payload);
 
 	return MCPResult(Result);
 }

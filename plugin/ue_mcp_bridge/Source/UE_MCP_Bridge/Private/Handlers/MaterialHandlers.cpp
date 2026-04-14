@@ -201,8 +201,25 @@ TSharedPtr<FJsonValue> FMaterialHandlers::CreateMaterial(const TSharedPtr<FJsonO
 	if (auto Err = RequireString(Params, TEXT("name"), Name)) return Err;
 
 	FString PackagePath = OptionalString(Params, TEXT("packagePath"), TEXT("/Game/Materials"));
+	const FString OnConflict = OptionalString(Params, TEXT("onConflict"), TEXT("skip"));
 
 	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] CreateMaterial: name=%s packagePath=%s"), *Name, *PackagePath);
+
+	// Idempotency: check if the material already exists at the target path.
+	const FString ProbePath = PackagePath + TEXT("/") + Name + TEXT(".") + Name;
+	if (UMaterial* Existing = LoadObject<UMaterial>(nullptr, *ProbePath))
+	{
+		if (OnConflict == TEXT("error"))
+		{
+			return MCPError(FString::Printf(TEXT("Material '%s' already exists"), *ProbePath));
+		}
+		auto ExistingResult = MCPSuccess();
+		MCPSetExisted(ExistingResult);
+		ExistingResult->SetStringField(TEXT("path"), Existing->GetPathName());
+		ExistingResult->SetStringField(TEXT("name"), Name);
+		ExistingResult->SetStringField(TEXT("packagePath"), PackagePath);
+		return MCPResult(ExistingResult);
+	}
 
 	FAssetToolsModule& AssetToolsModule = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools"));
 	IAssetTools& AssetTools = AssetToolsModule.Get();
@@ -221,7 +238,6 @@ TSharedPtr<FJsonValue> FMaterialHandlers::CreateMaterial(const TSharedPtr<FJsonO
 		return MCPError(TEXT("Created asset is not a material"));
 	}
 
-	// Save the package
 	UPackage* Package = NewMaterial->GetOutermost();
 	if (Package)
 	{
@@ -232,11 +248,17 @@ TSharedPtr<FJsonValue> FMaterialHandlers::CreateMaterial(const TSharedPtr<FJsonO
 		UPackage::SavePackage(Package, nullptr, *PackageFileName, SaveArgs);
 	}
 
+	const FString AssetPath = NewMaterial->GetPathName();
+
 	auto Result = MCPSuccess();
-	FString AssetPath = NewMaterial->GetPathName();
+	MCPSetCreated(Result);
 	Result->SetStringField(TEXT("path"), AssetPath);
 	Result->SetStringField(TEXT("name"), Name);
 	Result->SetStringField(TEXT("packagePath"), PackagePath);
+
+	TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+	Payload->SetStringField(TEXT("assetPath"), AssetPath);
+	MCPSetRollback(Result, TEXT("delete_asset"), Payload);
 
 	return MCPResult(Result);
 }

@@ -152,13 +152,34 @@ TSharedPtr<FJsonValue> FLevelHandlers::PlaceActor(const TSharedPtr<FJsonObject>&
 
 	REQUIRE_EDITOR_WORLD(World);
 
-	// Find actor class -- silent short-name search first, then full path load
+	const FString OnConflict = OptionalString(Params, TEXT("onConflict"), TEXT("skip"));
+	const FString Label = OptionalString(Params, TEXT("label"));
+
+	// Idempotency: reuse an actor that already has this label.
+	if (!Label.IsEmpty())
+	{
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			if (It->GetActorLabel() == Label)
+			{
+				if (OnConflict == TEXT("error"))
+				{
+					return MCPError(FString::Printf(TEXT("Actor '%s' already exists"), *Label));
+				}
+				auto Existing = MCPSuccess();
+				MCPSetExisted(Existing);
+				Existing->SetStringField(TEXT("actorLabel"), Label);
+				Existing->SetStringField(TEXT("actorClass"), It->GetClass()->GetName());
+				return MCPResult(Existing);
+			}
+		}
+	}
+
 	UClass* Class = FindClassByShortName(ActorClass);
 	if (!Class)
 	{
 		Class = LoadObject<UClass>(nullptr, *ActorClass);
 	}
-
 	if (!Class)
 	{
 		return MCPError(FString::Printf(TEXT("Actor class not found: %s"), *ActorClass));
@@ -192,8 +213,6 @@ TSharedPtr<FJsonValue> FLevelHandlers::PlaceActor(const TSharedPtr<FJsonObject>&
 		return MCPError(TEXT("Failed to spawn actor"));
 	}
 
-	// Label
-	FString Label = OptionalString(Params, TEXT("label"));
 	if (!Label.IsEmpty())
 	{
 		NewActor->SetActorLabel(Label);
@@ -210,7 +229,7 @@ TSharedPtr<FJsonValue> FLevelHandlers::PlaceActor(const TSharedPtr<FJsonObject>&
 		NewActor->SetActorScale3D(Scale);
 	}
 
-	// Static mesh shorthand — set mesh on StaticMeshActor
+	// Static mesh shorthand
 	FString StaticMeshPath = OptionalString(Params, TEXT("staticMesh"));
 	if (!StaticMeshPath.IsEmpty())
 	{
@@ -225,7 +244,7 @@ TSharedPtr<FJsonValue> FLevelHandlers::PlaceActor(const TSharedPtr<FJsonObject>&
 		}
 	}
 
-	// Material shorthand — apply to first primitive component, slot 0
+	// Material shorthand
 	FString MaterialPath = OptionalString(Params, TEXT("material"));
 	if (!MaterialPath.IsEmpty())
 	{
@@ -240,9 +259,16 @@ TSharedPtr<FJsonValue> FLevelHandlers::PlaceActor(const TSharedPtr<FJsonObject>&
 		}
 	}
 
+	const FString FinalLabel = NewActor->GetActorLabel();
+
 	auto Result = MCPSuccess();
-	Result->SetStringField(TEXT("actorLabel"), NewActor->GetActorLabel());
+	MCPSetCreated(Result);
+	Result->SetStringField(TEXT("actorLabel"), FinalLabel);
 	Result->SetStringField(TEXT("actorClass"), ActorClass);
+
+	TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+	Payload->SetStringField(TEXT("actorLabel"), FinalLabel);
+	MCPSetRollback(Result, TEXT("delete_actor"), Payload);
 
 	return MCPResult(Result);
 }
@@ -254,7 +280,6 @@ TSharedPtr<FJsonValue> FLevelHandlers::DeleteActor(const TSharedPtr<FJsonObject>
 
 	REQUIRE_EDITOR_WORLD(World);
 
-	// Find actor by label
 	AActor* ActorToDelete = nullptr;
 	for (TActorIterator<AActor> ActorIt(World); ActorIt; ++ActorIt)
 	{
@@ -265,15 +290,21 @@ TSharedPtr<FJsonValue> FLevelHandlers::DeleteActor(const TSharedPtr<FJsonObject>
 		}
 	}
 
+	// Idempotent: deleting a non-existent actor is a no-op, not an error.
 	if (!ActorToDelete)
 	{
-		return MCPError(FString::Printf(TEXT("Actor not found: %s"), *ActorLabel));
+		auto Result = MCPSuccess();
+		Result->SetStringField(TEXT("actorLabel"), ActorLabel);
+		Result->SetBoolField(TEXT("alreadyDeleted"), true);
+		return MCPResult(Result);
 	}
 
 	World->DestroyActor(ActorToDelete);
 
 	auto Result = MCPSuccess();
 	Result->SetStringField(TEXT("actorLabel"), ActorLabel);
+	Result->SetBoolField(TEXT("deleted"), true);
+	// Delete is not reversible by default (would need snapshot-before-delete).
 
 	return MCPResult(Result);
 }
@@ -468,7 +499,10 @@ TSharedPtr<FJsonValue> FLevelHandlers::MoveActor(const TSharedPtr<FJsonObject>& 
 		return MCPError(FString::Printf(TEXT("Actor not found: %s"), *ActorLabel));
 	}
 
-	// Get location
+	// Capture previous transform for rollback.
+	const FVector PreviousLocation = Actor->GetActorLocation();
+	const FRotator PreviousRotation = Actor->GetActorRotation();
+
 	const TSharedPtr<FJsonObject>* LocObj = nullptr;
 	if (Params->TryGetObjectField(TEXT("location"), LocObj))
 	{
@@ -479,7 +513,6 @@ TSharedPtr<FJsonValue> FLevelHandlers::MoveActor(const TSharedPtr<FJsonObject>& 
 		Actor->SetActorLocation(Location);
 	}
 
-	// Get rotation
 	const TSharedPtr<FJsonObject>* RotObj = nullptr;
 	if (Params->TryGetObjectField(TEXT("rotation"), RotObj))
 	{
@@ -490,7 +523,6 @@ TSharedPtr<FJsonValue> FLevelHandlers::MoveActor(const TSharedPtr<FJsonObject>& 
 		Actor->SetActorRotation(Rotation);
 	}
 
-	// Return new transform
 	FVector NewLocation = Actor->GetActorLocation();
 	TSharedPtr<FJsonObject> NewLocationObj = MakeShared<FJsonObject>();
 	NewLocationObj->SetNumberField(TEXT("x"), NewLocation.X);
@@ -504,9 +536,25 @@ TSharedPtr<FJsonValue> FLevelHandlers::MoveActor(const TSharedPtr<FJsonObject>& 
 	NewRotationObj->SetNumberField(TEXT("roll"), NewRotation.Roll);
 
 	auto Result = MCPSuccess();
+	MCPSetUpdated(Result);
 	Result->SetObjectField(TEXT("location"), NewLocationObj);
 	Result->SetObjectField(TEXT("rotation"), NewRotationObj);
 	Result->SetStringField(TEXT("actorLabel"), ActorLabel);
+
+	// Self-inverse: call move_actor with previous transform.
+	TSharedPtr<FJsonObject> PrevLoc = MakeShared<FJsonObject>();
+	PrevLoc->SetNumberField(TEXT("x"), PreviousLocation.X);
+	PrevLoc->SetNumberField(TEXT("y"), PreviousLocation.Y);
+	PrevLoc->SetNumberField(TEXT("z"), PreviousLocation.Z);
+	TSharedPtr<FJsonObject> PrevRot = MakeShared<FJsonObject>();
+	PrevRot->SetNumberField(TEXT("pitch"), PreviousRotation.Pitch);
+	PrevRot->SetNumberField(TEXT("yaw"), PreviousRotation.Yaw);
+	PrevRot->SetNumberField(TEXT("roll"), PreviousRotation.Roll);
+	TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+	Payload->SetStringField(TEXT("actorLabel"), ActorLabel);
+	Payload->SetObjectField(TEXT("location"), PrevLoc);
+	Payload->SetObjectField(TEXT("rotation"), PrevRot);
+	MCPSetRollback(Result, TEXT("move_actor"), Payload);
 
 	return MCPResult(Result);
 }
@@ -564,7 +612,29 @@ TSharedPtr<FJsonValue> FLevelHandlers::SpawnLight(const TSharedPtr<FJsonObject>&
 
 	REQUIRE_EDITOR_WORLD(World);
 
-	// Get location
+	const FString OnConflict = OptionalString(Params, TEXT("onConflict"), TEXT("skip"));
+	const FString Label = OptionalString(Params, TEXT("label"));
+
+	// Idempotency by label.
+	if (!Label.IsEmpty())
+	{
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			if (It->GetActorLabel() == Label)
+			{
+				if (OnConflict == TEXT("error"))
+				{
+					return MCPError(FString::Printf(TEXT("Light '%s' already exists"), *Label));
+				}
+				auto Existing = MCPSuccess();
+				MCPSetExisted(Existing);
+				Existing->SetStringField(TEXT("actorLabel"), Label);
+				Existing->SetStringField(TEXT("lightType"), LightType);
+				return MCPResult(Existing);
+			}
+		}
+	}
+
 	FVector Location = FVector::ZeroVector;
 	const TSharedPtr<FJsonObject>* LocationObj = nullptr;
 	if (Params->TryGetObjectField(TEXT("location"), LocationObj))
@@ -576,7 +646,6 @@ TSharedPtr<FJsonValue> FLevelHandlers::SpawnLight(const TSharedPtr<FJsonObject>&
 
 	double Intensity = OptionalNumber(Params, TEXT("intensity"), 5000.0);
 
-	// Determine light class
 	UClass* LightClass = nullptr;
 	if (LightType.Equals(TEXT("point"), ESearchCase::IgnoreCase))
 	{
@@ -606,24 +675,28 @@ TSharedPtr<FJsonValue> FLevelHandlers::SpawnLight(const TSharedPtr<FJsonObject>&
 		return MCPError(TEXT("Failed to spawn light actor"));
 	}
 
-	// Set label if provided
-	FString Label = OptionalString(Params, TEXT("label"));
 	if (!Label.IsEmpty())
 	{
 		NewLight->SetActorLabel(Label);
 	}
 
-	// Set intensity on light component
 	ULightComponent* LightComponent = NewLight->FindComponentByClass<ULightComponent>();
 	if (LightComponent)
 	{
 		LightComponent->SetIntensity(Intensity);
 	}
 
+	const FString FinalLabel = NewLight->GetActorLabel();
+
 	auto Result = MCPSuccess();
-	Result->SetStringField(TEXT("actorLabel"), NewLight->GetActorLabel());
+	MCPSetCreated(Result);
+	Result->SetStringField(TEXT("actorLabel"), FinalLabel);
 	Result->SetStringField(TEXT("actorName"), NewLight->GetName());
 	Result->SetStringField(TEXT("lightType"), LightType);
+
+	TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+	Payload->SetStringField(TEXT("actorLabel"), FinalLabel);
+	MCPSetRollback(Result, TEXT("delete_actor"), Payload);
 
 	return MCPResult(Result);
 }
@@ -695,6 +768,29 @@ TSharedPtr<FJsonValue> FLevelHandlers::SpawnVolume(const TSharedPtr<FJsonObject>
 	if (auto Err = RequireString(Params, TEXT("volumeType"), VolumeType)) return Err;
 
 	REQUIRE_EDITOR_WORLD(World);
+
+	const FString OnConflict = OptionalString(Params, TEXT("onConflict"), TEXT("skip"));
+	const FString Label = OptionalString(Params, TEXT("label"));
+
+	// Idempotency by label.
+	if (!Label.IsEmpty())
+	{
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			if (It->GetActorLabel() == Label)
+			{
+				if (OnConflict == TEXT("error"))
+				{
+					return MCPError(FString::Printf(TEXT("Volume '%s' already exists"), *Label));
+				}
+				auto Existing = MCPSuccess();
+				MCPSetExisted(Existing);
+				Existing->SetStringField(TEXT("actorLabel"), Label);
+				Existing->SetStringField(TEXT("volumeType"), VolumeType);
+				return MCPResult(Existing);
+			}
+		}
+	}
 
 	// Get location
 	FVector Location = FVector::ZeroVector;
@@ -768,8 +864,6 @@ TSharedPtr<FJsonValue> FLevelHandlers::SpawnVolume(const TSharedPtr<FJsonObject>
 		return MCPError(TEXT("Failed to spawn volume actor"));
 	}
 
-	// Set label if provided
-	FString Label = OptionalString(Params, TEXT("label"));
 	if (!Label.IsEmpty())
 	{
 		NewVolume->SetActorLabel(Label);
@@ -778,10 +872,17 @@ TSharedPtr<FJsonValue> FLevelHandlers::SpawnVolume(const TSharedPtr<FJsonObject>
 	// Set scale based on extent
 	NewVolume->SetActorScale3D(Extent / 100.0);
 
+	const FString FinalLabel = NewVolume->GetActorLabel();
+
 	auto Result = MCPSuccess();
-	Result->SetStringField(TEXT("actorLabel"), NewVolume->GetActorLabel());
+	MCPSetCreated(Result);
+	Result->SetStringField(TEXT("actorLabel"), FinalLabel);
 	Result->SetStringField(TEXT("actorName"), NewVolume->GetName());
 	Result->SetStringField(TEXT("volumeType"), VolumeType);
+
+	TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+	Payload->SetStringField(TEXT("actorLabel"), FinalLabel);
+	MCPSetRollback(Result, TEXT("delete_actor"), Payload);
 
 	return MCPResult(Result);
 }
@@ -1281,13 +1382,34 @@ TSharedPtr<FJsonValue> FLevelHandlers::SetActorMaterial(const TSharedPtr<FJsonOb
 		return MCPError(FString::Printf(TEXT("Actor '%s' has no primitive component"), *ActorLabel));
 	}
 
+	// Capture previous material BEFORE mutating so rollback can restore it.
+	FString PreviousMaterialPath;
+	if (UMaterialInterface* Prev = PrimComp->GetMaterial(SlotIndex))
+	{
+		PreviousMaterialPath = Prev->GetPathName();
+	}
+
 	PrimComp->SetMaterial(SlotIndex, Material);
 	PrimComp->MarkRenderStateDirty();
 
 	auto Result = MCPSuccess();
+	MCPSetUpdated(Result);
 	Result->SetStringField(TEXT("actorLabel"), ActorLabel);
 	Result->SetStringField(TEXT("materialPath"), MaterialPath);
 	Result->SetNumberField(TEXT("slotIndex"), SlotIndex);
+	Result->SetStringField(TEXT("previousMaterialPath"), PreviousMaterialPath);
+
+	// Self-inverse: call set_actor_material again with the previous path.
+	// (If previous was unset, passing an empty path would fail material load;
+	//  skip the rollback record in that case — best-effort.)
+	if (!PreviousMaterialPath.IsEmpty())
+	{
+		TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+		Payload->SetStringField(TEXT("actorLabel"), ActorLabel);
+		Payload->SetStringField(TEXT("materialPath"), PreviousMaterialPath);
+		Payload->SetNumberField(TEXT("slotIndex"), SlotIndex);
+		MCPSetRollback(Result, TEXT("set_actor_material"), Payload);
+	}
 
 	return MCPResult(Result);
 }

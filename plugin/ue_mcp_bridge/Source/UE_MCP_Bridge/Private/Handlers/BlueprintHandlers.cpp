@@ -355,12 +355,19 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::CreateBlueprint(const TSharedPtr<FJso
 	FString AssetName;
 	AssetPath.Split(TEXT("/"), &PackageName, &AssetName, ESearchCase::CaseSensitive, ESearchDir::FromEnd);
 
-	// Idempotent: if asset already exists, return it
+	const FString OnConflict = OptionalString(Params, TEXT("onConflict"), TEXT("skip"));
+
+	// Idempotent: if asset already exists, return it.
 	UBlueprint* ExistingBP = LoadBlueprint(AssetPath);
 	if (ExistingBP)
 	{
+		if (OnConflict == TEXT("error"))
+		{
+			return MCPError(FString::Printf(TEXT("Blueprint '%s' already exists"), *AssetPath));
+		}
 		FString ObjectPath = ExistingBP->GetPathName();
 		auto Result = MCPSuccess();
+		MCPSetExisted(Result);
 		Result->SetStringField(TEXT("path"), AssetPath);
 		Result->SetStringField(TEXT("objectPath"), ObjectPath);
 		Result->SetStringField(TEXT("className"), ExistingBP->GetName());
@@ -368,7 +375,6 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::CreateBlueprint(const TSharedPtr<FJso
 		{
 			Result->SetStringField(TEXT("parentClass"), ExistingBP->ParentClass->GetPathName());
 		}
-		Result->SetBoolField(TEXT("alreadyExisted"), true);
 		return MCPResult(Result);
 	}
 
@@ -382,13 +388,18 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::CreateBlueprint(const TSharedPtr<FJso
 
 	FKismetEditorUtilities::CompileBlueprint(NewBlueprint);
 
-	// Return both the package path and canonical object path
-	FString ObjectPath = NewBlueprint->GetPathName();
+	const FString ObjectPath = NewBlueprint->GetPathName();
+
 	auto Result = MCPSuccess();
+	MCPSetCreated(Result);
 	Result->SetStringField(TEXT("path"), AssetPath);
 	Result->SetStringField(TEXT("objectPath"), ObjectPath);
 	Result->SetStringField(TEXT("className"), NewBlueprint->GetName());
 	Result->SetStringField(TEXT("parentClass"), ParentClass->GetPathName());
+
+	TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+	Payload->SetStringField(TEXT("assetPath"), ObjectPath);
+	MCPSetRollback(Result, TEXT("delete_asset"), Payload);
 
 	return MCPResult(Result);
 }
