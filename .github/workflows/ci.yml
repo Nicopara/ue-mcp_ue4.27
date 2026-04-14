@@ -62,11 +62,24 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Package tarball
+        if: steps.version.outputs.changed == 'true'
+        run: tar czf ue-mcp.tar.gz dist/ plugin/ package.json package-lock.json README.md LICENSE
+
       - name: Tag release
         if: steps.version.outputs.changed == 'true'
         run: |
           git tag "v${{ steps.version.outputs.local }}"
           git push origin "v${{ steps.version.outputs.local }}"
+
+      - name: Create GitHub Release
+        if: steps.version.outputs.changed == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ steps.version.outputs.local }}"
+          name: "v${{ steps.version.outputs.local }}"
+          generate_release_notes: true
+          files: ue-mcp.tar.gz
 
   docs:
     needs: build
