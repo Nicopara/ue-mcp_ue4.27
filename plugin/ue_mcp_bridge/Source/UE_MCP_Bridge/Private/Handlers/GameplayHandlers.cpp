@@ -113,6 +113,7 @@ void FGameplayHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("add_state_tree_component"), &AddStateTreeComponent);
 	Registry.RegisterHandler(TEXT("add_smart_object_component"), &AddSmartObjectComponent);
 	Registry.RegisterHandler(TEXT("read_imc"), &ReadImc);
+	Registry.RegisterHandler(TEXT("list_imc_mappings"), &ReadImc);
 	Registry.RegisterHandler(TEXT("add_imc_mapping"), &AddImcMapping);
 	Registry.RegisterHandler(TEXT("set_mapping_modifiers"), &SetMappingModifiers);
 	Registry.RegisterHandler(TEXT("inspect_pie"), &InspectPie);
