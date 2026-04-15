@@ -32,6 +32,7 @@
 #include "K2Node_IfThenElse.h"
 #include "K2Node_MacroInstance.h"
 #include "K2Node_VariableGet.h"
+#include "K2Node_DynamicCast.h"
 #include "K2Node_VariableSet.h"
 #include "K2Node_CustomEvent.h"
 #include "Dom/JsonObject.h"
@@ -1695,6 +1696,7 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddNode(const TSharedPtr<FJsonObject>
 		if (NodeParams)
 		{
 			FString VarName;
+			FString OwnerClass;
 			if (!(*NodeParams)->TryGetStringField(TEXT("variableName"), VarName))
 			{
 				// Also accept {"VariableReference":{"MemberName":"X"}} format
@@ -1702,9 +1704,33 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddNode(const TSharedPtr<FJsonObject>
 				if ((*NodeParams)->TryGetObjectField(TEXT("VariableReference"), VarRef))
 					(*VarRef)->TryGetStringField(TEXT("MemberName"), VarName);
 			}
+			(*NodeParams)->TryGetStringField(TEXT("ownerClass"), OwnerClass);
+
 			if (!VarName.IsEmpty())
 			{
-				GetNode->VariableReference.SetSelfMember(FName(*VarName));
+				if (!OwnerClass.IsEmpty())
+				{
+					// #118: external class member get — typed Target input pin
+					UClass* Owner = LoadClass<UObject>(nullptr, *OwnerClass);
+					if (!Owner) Owner = LoadObject<UClass>(nullptr, *OwnerClass);
+					if (!Owner && !OwnerClass.EndsWith(TEXT("_C")))
+					{
+						Owner = LoadClass<UObject>(nullptr, *(OwnerClass + TEXT("_C")));
+					}
+					if (!Owner) Owner = FindClassByShortName(OwnerClass);
+					if (Owner)
+					{
+						GetNode->VariableReference.SetExternalMember(FName(*VarName), Owner);
+					}
+					else
+					{
+						GetNode->VariableReference.SetSelfMember(FName(*VarName));
+					}
+				}
+				else
+				{
+					GetNode->VariableReference.SetSelfMember(FName(*VarName));
+				}
 			}
 		}
 	}
@@ -1725,12 +1751,55 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddNode(const TSharedPtr<FJsonObject>
 			}
 		}
 	}
+	else if (UK2Node_DynamicCast* CastNode = Cast<UK2Node_DynamicCast>(NewNode))
+	{
+		// #101/#118: resolve BP-generated class paths as well as native classes
+		if (NodeParams)
+		{
+			FString TargetType;
+			if (!(*NodeParams)->TryGetStringField(TEXT("targetClass"), TargetType))
+				(*NodeParams)->TryGetStringField(TEXT("TargetType"), TargetType);
+			if (!TargetType.IsEmpty())
+			{
+				UClass* ResolvedClass = nullptr;
+				// Try LoadClass (handles Blueprint_C paths like /Game/.../BP_Foo.BP_Foo_C)
+				ResolvedClass = LoadClass<UObject>(nullptr, *TargetType);
+				if (!ResolvedClass)
+				{
+					// Try LoadObject as UClass
+					ResolvedClass = LoadObject<UClass>(nullptr, *TargetType);
+				}
+				if (!ResolvedClass && !TargetType.EndsWith(TEXT("_C")))
+				{
+					// Try appending _C for Blueprint generated classes
+					FString WithSuffix = TargetType + TEXT("_C");
+					ResolvedClass = LoadClass<UObject>(nullptr, *WithSuffix);
+					if (!ResolvedClass) ResolvedClass = LoadObject<UClass>(nullptr, *WithSuffix);
+				}
+				if (!ResolvedClass)
+				{
+					ResolvedClass = FindClassByShortName(TargetType);
+				}
+				if (ResolvedClass)
+				{
+					CastNode->TargetType = ResolvedClass;
+				}
+			}
+		}
+	}
 
 	// Common initialization (works for all UEdGraphNode subclasses -- K2, AnimGraph, etc.)
 	TargetGraph->AddNode(NewNode, false, false);
 	NewNode->CreateNewGuid();
 	NewNode->PostPlacedNewNode();
 	NewNode->AllocateDefaultPins();
+
+	// #101/#118: after AllocateDefaultPins, force ReconstructNode so typed output pin
+	// ("As ClassName") appears for DynamicCast and typed pins appear for VariableGet.
+	if (UK2Node* K2 = Cast<UK2Node>(NewNode))
+	{
+		K2->ReconstructNode();
+	}
 
 	// Compile and save
 	FKismetEditorUtilities::CompileBlueprint(Blueprint);
