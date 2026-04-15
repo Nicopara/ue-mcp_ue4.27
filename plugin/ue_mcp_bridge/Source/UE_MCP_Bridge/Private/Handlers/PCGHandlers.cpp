@@ -217,7 +217,9 @@ TSharedPtr<FJsonValue> FPCGHandlers::AddPCGNode(const TSharedPtr<FJsonObject>& P
 	}
 
 	// Notify open editor tabs and mark package dirty so Ctrl+S / autosave picks it up (#108)
-	Graph->NotifyGraphChanged(EPCGChangeType::Structural);
+	// UE 5.7: NotifyGraphChanged is private. MarkPackageDirty + SaveAsset
+	// still persist changes; open editor tabs may need a reopen to refresh.
+	Graph->PostEditChange();
 	if (UPackage* Pkg = Graph->GetOutermost()) { Pkg->MarkPackageDirty(); }
 
 	// Save the graph asset
@@ -354,7 +356,7 @@ TSharedPtr<FJsonValue> FPCGHandlers::ConnectPCGNodes(const TSharedPtr<FJsonObjec
 	}
 
 	// Notify editor and mark dirty (#108)
-	Graph->NotifyGraphChanged(EPCGChangeType::Edge);
+	Graph->PostEditChange();
 	if (UPackage* Pkg = Graph->GetOutermost()) { Pkg->MarkPackageDirty(); }
 
 	// Save the graph asset
@@ -409,7 +411,9 @@ TSharedPtr<FJsonValue> FPCGHandlers::RemovePCGNode(const TSharedPtr<FJsonObject>
 	Graph->RemoveNode(FoundNode);
 
 	// Notify editor and mark dirty (#108)
-	Graph->NotifyGraphChanged(EPCGChangeType::Structural);
+	// UE 5.7: NotifyGraphChanged is private. MarkPackageDirty + SaveAsset
+	// still persist changes; open editor tabs may need a reopen to refresh.
+	Graph->PostEditChange();
 	if (UPackage* Pkg = Graph->GetOutermost()) { Pkg->MarkPackageDirty(); }
 
 	// Save the graph asset
@@ -537,7 +541,7 @@ TSharedPtr<FJsonValue> FPCGHandlers::SetPCGNodeSettings(const TSharedPtr<FJsonOb
 	}
 
 	// Notify editor and mark dirty (#108)
-	Graph->NotifyGraphChanged(EPCGChangeType::Node | EPCGChangeType::Settings);
+	Graph->PostEditChange();
 	if (UPackage* Pkg = Graph->GetOutermost()) { Pkg->MarkPackageDirty(); }
 
 	// Save the graph asset

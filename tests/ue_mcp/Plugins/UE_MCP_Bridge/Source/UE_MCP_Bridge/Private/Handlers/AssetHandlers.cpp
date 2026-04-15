@@ -58,6 +58,9 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("rename_asset"), &RenameAsset);
 	Registry.RegisterHandler(TEXT("move_asset"), &MoveAsset);
 	Registry.RegisterHandler(TEXT("delete_asset"), &DeleteAsset);
+	Registry.RegisterHandler(TEXT("delete_asset_batch"), &DeleteAssetBatch);
+	Registry.RegisterHandler(TEXT("bulk_rename_assets"), &BulkRename);
+	Registry.RegisterHandler(TEXT("create_data_asset"), &CreateDataAsset);
 	Registry.RegisterHandler(TEXT("save_asset"), &SaveAsset);
 	Registry.RegisterHandler(TEXT("list_textures"), &ListTextures);
 
@@ -715,6 +718,322 @@ TSharedPtr<FJsonValue> FAssetHandlers::DeleteAsset(const TSharedPtr<FJsonObject>
 	Result->SetStringField(TEXT("path"), AssetPath);
 	Result->SetBoolField(TEXT("deleted"), bSuccess);
 	// Delete is non-reversible by default.
+
+	return MCPResult(Result);
+}
+
+TSharedPtr<FJsonValue> FAssetHandlers::DeleteAssetBatch(const TSharedPtr<FJsonObject>& Params)
+{
+	const TArray<TSharedPtr<FJsonValue>>* PathsArr = nullptr;
+	if (!Params->TryGetArrayField(TEXT("assetPaths"), PathsArr) && !Params->TryGetArrayField(TEXT("paths"), PathsArr))
+	{
+		return MCPError(TEXT("Missing 'assetPaths' array parameter"));
+	}
+
+	TArray<TSharedPtr<FJsonValue>> PerPath;
+	int32 Deleted = 0;
+	int32 Absent = 0;
+	int32 Failed = 0;
+
+	for (const TSharedPtr<FJsonValue>& V : *PathsArr)
+	{
+		FString Path;
+		if (!V.IsValid() || !V->TryGetString(Path) || Path.IsEmpty())
+		{
+			continue;
+		}
+
+		TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+		Entry->SetStringField(TEXT("path"), Path);
+
+		if (!UEditorAssetLibrary::DoesAssetExist(Path))
+		{
+			Entry->SetStringField(TEXT("status"), TEXT("absent"));
+			Absent++;
+		}
+		else if (UEditorAssetLibrary::DeleteAsset(Path))
+		{
+			Entry->SetStringField(TEXT("status"), TEXT("deleted"));
+			Deleted++;
+		}
+		else
+		{
+			Entry->SetStringField(TEXT("status"), TEXT("failed"));
+			Failed++;
+		}
+		PerPath.Add(MakeShared<FJsonValueObject>(Entry));
+	}
+
+	auto Result = MCPSuccess();
+	Result->SetArrayField(TEXT("results"), PerPath);
+	Result->SetNumberField(TEXT("deleted"), Deleted);
+	Result->SetNumberField(TEXT("absent"), Absent);
+	Result->SetNumberField(TEXT("failed"), Failed);
+	Result->SetNumberField(TEXT("total"), PerPath.Num());
+	return MCPResult(Result);
+}
+
+// ─── #128 item 6 — bulk_rename_assets ───────────────────────────────
+// Scene-referenced assets are expensive to rename one-by-one because each
+// individual rename forces a redirector-fixup / level-reference-update
+// pass across the whole project. At batches of 10-15 this can crash the
+// editor (observed on the user's Vale project).
+//
+// Content Browser drag-moves use IAssetTools::RenameAssets() with an
+// array of FAssetRenameData — that collapses every rename into a single
+// transaction with one redirector-fixup pass. This handler mirrors that
+// pattern.
+//
+// Params:
+//   renames: [{ sourcePath, destinationPath }, ...]
+//     or    [{ assetPath, newName }, ...]      (same as rename_asset)
+//     or    [{ sourcePath, newPackagePath, newName }, ...]
+TSharedPtr<FJsonValue> FAssetHandlers::BulkRename(const TSharedPtr<FJsonObject>& Params)
+{
+	const TArray<TSharedPtr<FJsonValue>>* Items = nullptr;
+	if (!Params->TryGetArrayField(TEXT("renames"), Items) &&
+		!Params->TryGetArrayField(TEXT("items"), Items))
+	{
+		return MCPError(TEXT("Missing 'renames' array parameter"));
+	}
+
+	TArray<FAssetRenameData> BatchRenames;
+	TArray<TSharedPtr<FJsonValue>> PerItem;
+	int32 Skipped = 0;
+
+	for (const TSharedPtr<FJsonValue>& V : *Items)
+	{
+		if (!V.IsValid()) continue;
+		const TSharedPtr<FJsonObject>* EntryPtr = nullptr;
+		if (!V->TryGetObject(EntryPtr) || !EntryPtr || !EntryPtr->IsValid())
+		{
+			continue;
+		}
+		const TSharedPtr<FJsonObject>& Entry = *EntryPtr;
+
+		TSharedPtr<FJsonObject> Record = MakeShared<FJsonObject>();
+
+		FString SourcePath;
+		FString NewPackagePath;
+		FString NewName;
+
+		if (Entry->TryGetStringField(TEXT("sourcePath"), SourcePath))
+		{
+			FString DestPath;
+			if (Entry->TryGetStringField(TEXT("destinationPath"), DestPath))
+			{
+				// Split DestPath "/Game/Foo/Bar.Bar" → "/Game/Foo" + "Bar"
+				FString Pkg, ObjName;
+				DestPath.Split(TEXT("."), &Pkg, &ObjName, ESearchCase::CaseSensitive, ESearchDir::FromEnd);
+				if (ObjName.IsEmpty())
+				{
+					// Accept bare package form "/Game/Foo/Bar"
+					Pkg = DestPath;
+					ObjName = FPaths::GetBaseFilename(DestPath);
+				}
+				NewPackagePath = FPaths::GetPath(Pkg);
+				NewName = ObjName;
+			}
+			else
+			{
+				Entry->TryGetStringField(TEXT("newPackagePath"), NewPackagePath);
+				Entry->TryGetStringField(TEXT("newName"), NewName);
+			}
+		}
+		else if (Entry->TryGetStringField(TEXT("assetPath"), SourcePath))
+		{
+			Entry->TryGetStringField(TEXT("newName"), NewName);
+			NewPackagePath = FPaths::GetPath(SourcePath);
+		}
+
+		Record->SetStringField(TEXT("sourcePath"), SourcePath);
+
+		if (SourcePath.IsEmpty() || NewName.IsEmpty() || NewPackagePath.IsEmpty())
+		{
+			Record->SetStringField(TEXT("status"), TEXT("invalid"));
+			PerItem.Add(MakeShared<FJsonValueObject>(Record));
+			Skipped++;
+			continue;
+		}
+
+		UObject* Asset = UEditorAssetLibrary::LoadAsset(SourcePath);
+		if (!Asset)
+		{
+			Record->SetStringField(TEXT("status"), TEXT("not_found"));
+			PerItem.Add(MakeShared<FJsonValueObject>(Record));
+			Skipped++;
+			continue;
+		}
+
+		FAssetRenameData Data(Asset, NewPackagePath, NewName);
+		BatchRenames.Add(Data);
+
+		Record->SetStringField(TEXT("destinationPath"),
+			FString::Printf(TEXT("%s/%s.%s"), *NewPackagePath, *NewName, *NewName));
+		PerItem.Add(MakeShared<FJsonValueObject>(Record));
+	}
+
+	if (BatchRenames.Num() == 0)
+	{
+		return MCPError(TEXT("No valid renames to process"));
+	}
+
+	FAssetToolsModule& AssetToolsModule = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools"));
+	IAssetTools& AssetTools = AssetToolsModule.Get();
+
+	// RenameAssets wraps all renames in a single transaction + one
+	// redirector-fixup pass — the same op the Content Browser performs on
+	// drag-and-drop. Returns true if every rename succeeded.
+	bool bOk = AssetTools.RenameAssets(BatchRenames);
+
+	// Mark each batched rename with its post-op status.
+	int32 Succeeded = 0;
+	int32 Failed = 0;
+	int32 Idx = 0;
+	for (int32 i = 0; i < PerItem.Num(); ++i)
+	{
+		TSharedPtr<FJsonObject> Rec = PerItem[i]->AsObject();
+		if (!Rec.IsValid() || Rec->HasField(TEXT("status"))) continue;
+
+		const FAssetRenameData& Data = BatchRenames[Idx++];
+		// A rename is considered to have succeeded if the asset now lives
+		// at the destination. When bOk==false, some entries may still have
+		// landed — check per-item.
+		const FString DestFullPath = FString::Printf(TEXT("%s/%s.%s"),
+			*Data.NewPackagePath, *Data.NewName, *Data.NewName);
+		if (UEditorAssetLibrary::DoesAssetExist(DestFullPath))
+		{
+			Rec->SetStringField(TEXT("status"), TEXT("renamed"));
+			Succeeded++;
+		}
+		else
+		{
+			Rec->SetStringField(TEXT("status"), TEXT("failed"));
+			Failed++;
+		}
+	}
+
+	auto Result = MCPSuccess();
+	if (Succeeded > 0) MCPSetUpdated(Result);
+	Result->SetBoolField(TEXT("success"), bOk);
+	Result->SetNumberField(TEXT("renamed"), Succeeded);
+	Result->SetNumberField(TEXT("failed"), Failed);
+	Result->SetNumberField(TEXT("skipped"), Skipped);
+	Result->SetNumberField(TEXT("total"), PerItem.Num());
+	Result->SetArrayField(TEXT("results"), PerItem);
+	return MCPResult(Result);
+}
+
+TSharedPtr<FJsonValue> FAssetHandlers::CreateDataAsset(const TSharedPtr<FJsonObject>& Params)
+{
+	FString Name;
+	if (auto Err = RequireString(Params, TEXT("name"), Name)) return Err;
+	FString PackagePath = OptionalString(Params, TEXT("packagePath"), TEXT("/Game"));
+	FString ClassName;
+	if (auto Err = RequireStringAlt(Params, TEXT("className"), TEXT("class"), ClassName)) return Err;
+
+	// Resolve the DataAsset subclass by name or path
+	UClass* DataClass = nullptr;
+	if (ClassName.StartsWith(TEXT("/")))
+	{
+		DataClass = LoadClass<UObject>(nullptr, *ClassName);
+		if (!DataClass) DataClass = LoadObject<UClass>(nullptr, *ClassName);
+	}
+	if (!DataClass)
+	{
+		FString Trimmed = ClassName;
+		Trimmed.RemoveFromEnd(TEXT("_C"));
+		// Attempt find in any package (fallback: scan all loaded UClass objects)
+		for (TObjectIterator<UClass> It; It; ++It)
+		{
+			if (It->GetName() == Trimmed || It->GetName() == ClassName)
+			{
+				DataClass = *It;
+				break;
+			}
+		}
+	}
+	if (!DataClass)
+	{
+		return MCPError(FString::Printf(TEXT("Class not found: %s (pass full /Script/Module.ClassName or a loaded class name)"), *ClassName));
+	}
+	if (!DataClass->IsChildOf(UDataAsset::StaticClass()))
+	{
+		return MCPError(FString::Printf(TEXT("Class %s is not a UDataAsset subclass"), *ClassName));
+	}
+
+	const FString FullPath = FString::Printf(TEXT("%s/%s.%s"), *PackagePath, *Name, *Name);
+	const FString OnConflict = OptionalString(Params, TEXT("onConflict"), TEXT("skip"));
+	if (auto Existing = MCPCheckAssetExists(PackagePath, Name, OnConflict, TEXT("DataAsset")))
+	{
+		return Existing;
+	}
+
+	FAssetToolsModule& AssetToolsModule = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools"));
+	IAssetTools& AssetTools = AssetToolsModule.Get();
+	UObject* NewAsset = AssetTools.CreateAsset(Name, PackagePath, DataClass, nullptr);
+	if (!NewAsset)
+	{
+		return MCPError(FString::Printf(TEXT("Failed to create DataAsset %s of class %s"), *Name, *DataClass->GetName()));
+	}
+
+	// Optional properties object — import via reflection (strings + json values)
+	const TSharedPtr<FJsonObject>* PropsObj = nullptr;
+	int32 SetCount = 0;
+	TArray<FString> PropErrors;
+	if (Params->TryGetObjectField(TEXT("properties"), PropsObj) && PropsObj && (*PropsObj).IsValid())
+	{
+		for (const auto& Pair : (*PropsObj)->Values)
+		{
+			FProperty* Prop = DataClass->FindPropertyByName(FName(*Pair.Key));
+			if (!Prop)
+			{
+				PropErrors.Add(FString::Printf(TEXT("Property not found: %s"), *Pair.Key));
+				continue;
+			}
+			FString Val;
+			if (Pair.Value->Type == EJson::String) Val = Pair.Value->AsString();
+			else if (Pair.Value->Type == EJson::Number) Val = FString::SanitizeFloat(Pair.Value->AsNumber());
+			else if (Pair.Value->Type == EJson::Boolean) Val = Pair.Value->AsBool() ? TEXT("true") : TEXT("false");
+			else
+			{
+				// Serialize complex values to JSON text for ImportText
+				FString Serialized;
+				TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Serialized);
+				FJsonSerializer::Serialize(Pair.Value.ToSharedRef(), TEXT(""), Writer);
+				Val = Serialized;
+			}
+			void* Addr = Prop->ContainerPtrToValuePtr<void>(NewAsset);
+			if (Prop->ImportText_Direct(*Val, Addr, NewAsset, PPF_None))
+			{
+				SetCount++;
+			}
+			else
+			{
+				PropErrors.Add(FString::Printf(TEXT("Failed to set %s"), *Pair.Key));
+			}
+		}
+	}
+
+	UEditorAssetLibrary::SaveAsset(FullPath);
+
+	auto Result = MCPSuccess();
+	MCPSetCreated(Result);
+	Result->SetStringField(TEXT("assetPath"), FullPath);
+	Result->SetStringField(TEXT("name"), Name);
+	Result->SetStringField(TEXT("className"), DataClass->GetName());
+	Result->SetNumberField(TEXT("propertiesSet"), SetCount);
+	if (PropErrors.Num() > 0)
+	{
+		TArray<TSharedPtr<FJsonValue>> Errs;
+		for (const FString& E : PropErrors) Errs.Add(MakeShared<FJsonValueString>(E));
+		Result->SetArrayField(TEXT("propertyErrors"), Errs);
+	}
+
+	// Rollback: delete the newly created asset
+	TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+	Payload->SetStringField(TEXT("assetPath"), FullPath);
+	MCPSetRollback(Result, TEXT("delete_asset"), Payload);
 
 	return MCPResult(Result);
 }

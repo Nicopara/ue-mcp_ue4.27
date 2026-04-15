@@ -32,6 +32,7 @@
 #include "K2Node_IfThenElse.h"
 #include "K2Node_MacroInstance.h"
 #include "K2Node_VariableGet.h"
+#include "K2Node_DynamicCast.h"
 #include "K2Node_VariableSet.h"
 #include "K2Node_CustomEvent.h"
 #include "Dom/JsonObject.h"
@@ -46,6 +47,7 @@
 // SCS component access
 #include "Engine/SimpleConstructionScript.h"
 #include "Engine/SCS_Node.h"
+#include "Engine/InheritableComponentHandler.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/StaticMesh.h"
@@ -100,6 +102,15 @@ void FBlueprintHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("add_local_variable"), &AddLocalVariable);
 	Registry.RegisterHandler(TEXT("list_local_variables"), &ListLocalVariables);
 	Registry.RegisterHandler(TEXT("validate_blueprint"), &ValidateBlueprint);
+
+	// v0.7.11 — issue fixes
+	Registry.RegisterHandler(TEXT("read_component_properties"), &ReadComponentProperties);
+	Registry.RegisterHandler(TEXT("read_node_property"), &ReadNodeProperty);
+	Registry.RegisterHandler(TEXT("reparent_component"), &ReparentComponent);
+	Registry.RegisterHandler(TEXT("set_actor_tick_settings"), &SetActorTickSettings);
+
+	// v0.7.12 — issue #128 — single-property read (inherited-aware)
+	Registry.RegisterHandler(TEXT("get_blueprint_component_property"), &GetComponentProperty);
 }
 
 // ---------------------------------------------------------------------------
@@ -540,9 +551,34 @@ UEdGraph* FBlueprintHandlers::FindGraph(UBlueprint* Blueprint, const FString& Gr
 	TArray<UEdGraph*> AllGraphs;
 	Blueprint->GetAllGraphs(AllGraphs);
 
+	// #119: support indexed addressing "Transition[4]" for disambiguating the N'th graph
+	// with that name (AnimBP state-machine transition graphs all share name "Transition")
+	FString BaseName = GraphName;
+	int32 Index = -1;
+	int32 LB = GraphName.Find(TEXT("["));
+	int32 RB = GraphName.Find(TEXT("]"));
+	if (LB != INDEX_NONE && RB != INDEX_NONE && RB > LB)
+	{
+		BaseName = GraphName.Left(LB);
+		FString IdxStr = GraphName.Mid(LB + 1, RB - LB - 1);
+		Index = FCString::Atoi(*IdxStr);
+	}
+
+	int32 Matched = 0;
 	for (UEdGraph* Graph : AllGraphs)
 	{
-		if (Graph && Graph->GetName() == GraphName)
+		if (Graph && Graph->GetName() == BaseName)
+		{
+			if (Index < 0) return Graph;
+			if (Matched == Index) return Graph;
+			Matched++;
+		}
+	}
+
+	// Also support object-path addressing "Outer.Graph" by matching suffix
+	for (UEdGraph* Graph : AllGraphs)
+	{
+		if (Graph && Graph->GetPathName().EndsWith(TEXT(".") + GraphName))
 		{
 			return Graph;
 		}
@@ -794,6 +830,19 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::ReadBlueprint(const TSharedPtr<FJsonO
 	}
 	Result->SetArrayField(TEXT("components"), ComponentsArray);
 
+	// #116: expose actor tick settings from the CDO
+	if (Blueprint->GeneratedClass)
+	{
+		if (AActor* CDOActor = Cast<AActor>(Blueprint->GeneratedClass->GetDefaultObject(false)))
+		{
+			TSharedPtr<FJsonObject> TickObj = MakeShared<FJsonObject>();
+			TickObj->SetBoolField(TEXT("bCanEverTick"), CDOActor->PrimaryActorTick.bCanEverTick);
+			TickObj->SetBoolField(TEXT("bStartWithTickEnabled"), CDOActor->PrimaryActorTick.bStartWithTickEnabled);
+			TickObj->SetNumberField(TEXT("TickInterval"), CDOActor->PrimaryActorTick.TickInterval);
+			Result->SetObjectField(TEXT("actorTick"), TickObj);
+		}
+	}
+
 	return MCPResult(Result);
 }
 
@@ -918,6 +967,9 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddComponent(const TSharedPtr<FJsonOb
 		return MCPError(FString::Printf(TEXT("Component class not found: %s"), *ComponentClass));
 	}
 
+	// #115: optional parentComponent — makes this component a child in the SCS hierarchy
+	const FString ParentComponent = OptionalString(Params, TEXT("parentComponent"));
+
 	// Try using SubobjectDataSubsystem (UE5 method)
 	bool bSuccess = false;
 	if (USubobjectDataSubsystem* Subsystem = GEngine->GetEngineSubsystem<USubobjectDataSubsystem>())
@@ -928,6 +980,25 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddComponent(const TSharedPtr<FJsonOb
 		if (Handles.Num() > 0)
 		{
 			FSubobjectDataHandle RootHandle = Handles[0];
+
+			// Resolve parentComponent to its handle if specified
+			if (!ParentComponent.IsEmpty())
+			{
+				for (const FSubobjectDataHandle& H : Handles)
+				{
+					if (const FSubobjectData* Data = H.GetData())
+					{
+						if (UObject* Obj = const_cast<UObject*>(Data->GetObject()))
+						{
+							if (Obj->GetName() == ParentComponent || Obj->GetName().StartsWith(ParentComponent))
+							{
+								RootHandle = H;
+								break;
+							}
+						}
+					}
+				}
+			}
 
 			FAddNewSubobjectParams AddParams;
 			AddParams.ParentHandle = RootHandle;
@@ -1654,6 +1725,7 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddNode(const TSharedPtr<FJsonObject>
 		if (NodeParams)
 		{
 			FString VarName;
+			FString OwnerClass;
 			if (!(*NodeParams)->TryGetStringField(TEXT("variableName"), VarName))
 			{
 				// Also accept {"VariableReference":{"MemberName":"X"}} format
@@ -1661,9 +1733,33 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddNode(const TSharedPtr<FJsonObject>
 				if ((*NodeParams)->TryGetObjectField(TEXT("VariableReference"), VarRef))
 					(*VarRef)->TryGetStringField(TEXT("MemberName"), VarName);
 			}
+			(*NodeParams)->TryGetStringField(TEXT("ownerClass"), OwnerClass);
+
 			if (!VarName.IsEmpty())
 			{
-				GetNode->VariableReference.SetSelfMember(FName(*VarName));
+				if (!OwnerClass.IsEmpty())
+				{
+					// #118: external class member get — typed Target input pin
+					UClass* Owner = LoadClass<UObject>(nullptr, *OwnerClass);
+					if (!Owner) Owner = LoadObject<UClass>(nullptr, *OwnerClass);
+					if (!Owner && !OwnerClass.EndsWith(TEXT("_C")))
+					{
+						Owner = LoadClass<UObject>(nullptr, *(OwnerClass + TEXT("_C")));
+					}
+					if (!Owner) Owner = FindClassByShortName(OwnerClass);
+					if (Owner)
+					{
+						GetNode->VariableReference.SetExternalMember(FName(*VarName), Owner);
+					}
+					else
+					{
+						GetNode->VariableReference.SetSelfMember(FName(*VarName));
+					}
+				}
+				else
+				{
+					GetNode->VariableReference.SetSelfMember(FName(*VarName));
+				}
 			}
 		}
 	}
@@ -1684,12 +1780,55 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddNode(const TSharedPtr<FJsonObject>
 			}
 		}
 	}
+	else if (UK2Node_DynamicCast* CastNode = Cast<UK2Node_DynamicCast>(NewNode))
+	{
+		// #101/#118: resolve BP-generated class paths as well as native classes
+		if (NodeParams)
+		{
+			FString TargetType;
+			if (!(*NodeParams)->TryGetStringField(TEXT("targetClass"), TargetType))
+				(*NodeParams)->TryGetStringField(TEXT("TargetType"), TargetType);
+			if (!TargetType.IsEmpty())
+			{
+				UClass* CastTargetClass = nullptr;
+				// Try LoadClass (handles Blueprint_C paths like /Game/.../BP_Foo.BP_Foo_C)
+				CastTargetClass = LoadClass<UObject>(nullptr, *TargetType);
+				if (!CastTargetClass)
+				{
+					// Try LoadObject as UClass
+					CastTargetClass = LoadObject<UClass>(nullptr, *TargetType);
+				}
+				if (!CastTargetClass && !TargetType.EndsWith(TEXT("_C")))
+				{
+					// Try appending _C for Blueprint generated classes
+					FString WithSuffix = TargetType + TEXT("_C");
+					CastTargetClass = LoadClass<UObject>(nullptr, *WithSuffix);
+					if (!CastTargetClass) CastTargetClass = LoadObject<UClass>(nullptr, *WithSuffix);
+				}
+				if (!CastTargetClass)
+				{
+					CastTargetClass = FindClassByShortName(TargetType);
+				}
+				if (CastTargetClass)
+				{
+					CastNode->TargetType = CastTargetClass;
+				}
+			}
+		}
+	}
 
 	// Common initialization (works for all UEdGraphNode subclasses -- K2, AnimGraph, etc.)
 	TargetGraph->AddNode(NewNode, false, false);
 	NewNode->CreateNewGuid();
 	NewNode->PostPlacedNewNode();
 	NewNode->AllocateDefaultPins();
+
+	// #101/#118: after AllocateDefaultPins, force ReconstructNode so typed output pin
+	// ("As ClassName") appears for DynamicCast and typed pins appear for VariableGet.
+	if (UK2Node* K2 = Cast<UK2Node>(NewNode))
+	{
+		K2->ReconstructNode();
+	}
 
 	// Compile and save
 	FKismetEditorUtilities::CompileBlueprint(Blueprint);
@@ -2654,6 +2793,135 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::SetNodeProperty(const TSharedPtr<FJso
 }
 
 // ---------------------------------------------------------------------------
+// Resolve a component template on a Blueprint by name.
+//
+// Child Blueprints do NOT own inherited components in their own SCS — the
+// component templates live on the parent Blueprint's SCS. Writing through
+// the parent's template corrupts the parent for every descendant. For
+// inherited components we must route writes through the child's
+// UInheritableComponentHandler, which stores per-child override templates
+// (equivalent of SubobjectDataBlueprintFunctionLibrary.get_object_for_blueprint
+// in Python, as opposed to the read-only shared get_object).
+//
+// bForWrite=true: always returns a write-safe template. For inherited
+//   components this means the child's ICH override (creating one if none
+//   exists yet). Never returns the shared parent template for a write.
+//
+// bForWrite=false: returns the child's ICH override if one exists
+//   (so reads reflect what writes would mutate), otherwise falls back to
+//   the parent template (which holds the effective default).
+//
+// OutAvailable is populated with candidate component names (own SCS +
+// inherited + CDO) for error messages when the lookup fails.
+static UActorComponent* ResolveComponentTemplate(
+	UBlueprint* Blueprint,
+	const FString& ComponentName,
+	bool bForWrite,
+	bool& bOutIsInherited,
+	TArray<FString>& OutAvailable)
+{
+	bOutIsInherited = false;
+	OutAvailable.Reset();
+	if (!Blueprint) return nullptr;
+
+	// 1) Own SCS — child's own components, write directly.
+	if (USimpleConstructionScript* SCS = Blueprint->SimpleConstructionScript)
+	{
+		for (USCS_Node* Node : SCS->GetAllNodes())
+		{
+			if (!Node || !Node->ComponentTemplate) continue;
+			OutAvailable.AddUnique(Node->GetVariableName().ToString());
+			if (Node->GetVariableName().ToString() == ComponentName ||
+				Node->ComponentTemplate->GetName() == ComponentName)
+			{
+				return Node->ComponentTemplate;
+			}
+		}
+	}
+
+	// 2) Walk parent BP chain for inherited SCS components.
+	USCS_Node* InheritedNode = nullptr;
+	UClass* ParentClass = Blueprint->ParentClass;
+	while (ParentClass && !InheritedNode)
+	{
+		if (UBlueprint* ParentBP = Cast<UBlueprint>(ParentClass->ClassGeneratedBy))
+		{
+			if (USimpleConstructionScript* ParentSCS = ParentBP->SimpleConstructionScript)
+			{
+				for (USCS_Node* Node : ParentSCS->GetAllNodes())
+				{
+					if (!Node || !Node->ComponentTemplate) continue;
+					OutAvailable.AddUnique(Node->GetVariableName().ToString());
+					if (Node->GetVariableName().ToString() == ComponentName ||
+						Node->ComponentTemplate->GetName() == ComponentName)
+					{
+						InheritedNode = Node;
+						break;
+					}
+				}
+			}
+			ParentClass = ParentBP->ParentClass;
+		}
+		else
+		{
+			break;
+		}
+	}
+
+	if (InheritedNode)
+	{
+		bOutIsInherited = true;
+		FComponentKey Key(InheritedNode);
+
+		// Look up any existing override on this specific child BP.
+		UInheritableComponentHandler* ICH =
+			Blueprint->GetInheritableComponentHandler(/*bCreateIfNecessary=*/bForWrite);
+		UActorComponent* Override = ICH ? ICH->GetOverridenComponentTemplate(Key) : nullptr;
+
+		if (bForWrite)
+		{
+			// Must never write through the shared parent template — that
+			// would mutate the parent and every other descendant.
+			if (!Override && ICH)
+			{
+				Override = ICH->CreateOverridenComponentTemplate(Key);
+			}
+			return Override; // null only if ICH creation failed
+		}
+		else
+		{
+			return Override ? Override : ToRawPtr(InheritedNode->ComponentTemplate);
+		}
+	}
+
+	// 3) CDO fallback — catches native C++ components and anything the
+	// SCS walk missed. Reads only; writes to these would need different
+	// plumbing and are not supported here.
+	if (Blueprint->GeneratedClass)
+	{
+		if (AActor* ActorCDO = Cast<AActor>(Blueprint->GeneratedClass->GetDefaultObject(false)))
+		{
+			TInlineComponentArray<UActorComponent*> Components;
+			ActorCDO->GetComponents(Components);
+			for (UActorComponent* C : Components)
+			{
+				if (!C) continue;
+				OutAvailable.AddUnique(C->GetName());
+				if (C->GetName() == ComponentName ||
+					C->GetName().StartsWith(ComponentName + TEXT("_")) ||
+					C->GetFName().ToString() == ComponentName)
+				{
+					// Reads of native components are fine. Writes via this
+					// path are unsupported — caller should check the flag.
+					return C;
+				}
+			}
+		}
+	}
+
+	return nullptr;
+}
+
 // set_component_property -- Set a property on an SCS component template
 // Params: assetPath, componentName, propertyName, value
 // ---------------------------------------------------------------------------
@@ -2677,80 +2945,16 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::SetComponentProperty(const TSharedPtr
 		return MCPError(FString::Printf(TEXT("Blueprint not found: %s"), *AssetPath));
 	}
 
-	USimpleConstructionScript* SCS = Blueprint->SimpleConstructionScript;
-	if (!SCS)
-	{
-		return MCPError(TEXT("Blueprint has no SimpleConstructionScript (not an Actor blueprint?)"));
-	}
-
-	// Find the SCS node by variable name or component template name
-	USCS_Node* TargetNode = nullptr;
-	for (USCS_Node* Node : SCS->GetAllNodes())
-	{
-		if (!Node || !Node->ComponentTemplate) continue;
-		if (Node->GetVariableName().ToString() == ComponentName ||
-			Node->ComponentTemplate->GetName() == ComponentName)
-		{
-			TargetNode = Node;
-			break;
-		}
-	}
-
-	UActorComponent* Template = TargetNode ? TargetNode->ComponentTemplate : nullptr;
-
-	// If not found in SCS, search inherited components on the CDO
-	if (!Template && Blueprint->GeneratedClass)
-	{
-		UObject* CDO = Blueprint->GeneratedClass->GetDefaultObject();
-		if (CDO)
-		{
-			TInlineComponentArray<UActorComponent*> Components;
-			if (AActor* ActorCDO = Cast<AActor>(CDO))
-			{
-				ActorCDO->GetComponents(Components);
-			}
-			for (UActorComponent* Comp : Components)
-			{
-				if (Comp && (Comp->GetName() == ComponentName ||
-					Comp->GetName().StartsWith(ComponentName + TEXT("_")) ||
-					Comp->GetFName().ToString() == ComponentName))
-				{
-					Template = Comp;
-					break;
-				}
-			}
-		}
-	}
+	bool bIsInherited = false;
+	TArray<FString> Available;
+	UActorComponent* Template = ResolveComponentTemplate(
+		Blueprint, ComponentName, /*bForWrite=*/true, bIsInherited, Available);
 
 	if (!Template)
 	{
-		// List available component names for error message
-		TArray<FString> Names;
-		if (SCS)
-		{
-			for (USCS_Node* Node : SCS->GetAllNodes())
-			{
-				if (Node && Node->ComponentTemplate)
-				{
-					Names.Add(Node->GetVariableName().ToString());
-				}
-			}
-		}
-		if (Blueprint->GeneratedClass)
-		{
-			if (AActor* ActorCDO = Cast<AActor>(Blueprint->GeneratedClass->GetDefaultObject()))
-			{
-				TInlineComponentArray<UActorComponent*> Components;
-				ActorCDO->GetComponents(Components);
-				for (UActorComponent* Comp : Components)
-				{
-					if (Comp) Names.AddUnique(Comp->GetName());
-				}
-			}
-		}
 		return MCPError(FString::Printf(
 			TEXT("Component '%s' not found. Available: [%s]"),
-			*ComponentName, *FString::Join(Names, TEXT(", "))));
+			*ComponentName, *FString::Join(Available, TEXT(", "))));
 	}
 
 	// Navigate dotted property paths (e.g. "RelativeLocation.X")
@@ -2859,6 +3063,7 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::SetComponentProperty(const TSharedPtr
 	Result->SetStringField(TEXT("componentName"), ComponentName);
 	Result->SetStringField(TEXT("propertyName"), PropertyName);
 	Result->SetStringField(TEXT("value"), Value);
+	Result->SetBoolField(TEXT("inherited"), bIsInherited);
 
 	// Rollback: self-inverse with previous value
 	TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
@@ -3667,5 +3872,285 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::ValidateBlueprint(const TSharedPtr<FJ
 	Result->SetNumberField(TEXT("warningCount"), Log.NumWarnings);
 	Result->SetBoolField(TEXT("valid"), Log.NumErrors == 0);
 	Result->SetArrayField(TEXT("messages"), Errors);
+	return MCPResult(Result);
+}
+
+// ─── #105 read_component_properties ─────────────────────────────────
+TSharedPtr<FJsonValue> FBlueprintHandlers::ReadComponentProperties(const TSharedPtr<FJsonObject>& Params)
+{
+	FString AssetPath;
+	if (auto Err = RequireStringAlt(Params, TEXT("path"), TEXT("assetPath"), AssetPath)) return Err;
+
+	FString ComponentName;
+	if (auto Err = RequireString(Params, TEXT("componentName"), ComponentName)) return Err;
+
+	UBlueprint* Blueprint = LoadBlueprint(AssetPath);
+	if (!Blueprint) return MCPError(FString::Printf(TEXT("Blueprint not found: %s"), *AssetPath));
+
+	bool bIsInherited = false;
+	TArray<FString> Available;
+	UActorComponent* Template = ResolveComponentTemplate(
+		Blueprint, ComponentName, /*bForWrite=*/false, bIsInherited, Available);
+	if (!Template)
+	{
+		return MCPError(FString::Printf(
+			TEXT("Component '%s' not found. Available: [%s]"),
+			*ComponentName, *FString::Join(Available, TEXT(", "))));
+	}
+
+	auto Result = MCPSuccess();
+	Result->SetStringField(TEXT("componentName"), Template->GetName());
+	Result->SetStringField(TEXT("componentClass"), Template->GetClass()->GetName());
+	Result->SetBoolField(TEXT("inherited"), bIsInherited);
+
+	TArray<TSharedPtr<FJsonValue>> PropsArr;
+	for (TFieldIterator<FProperty> It(Template->GetClass()); It; ++It)
+	{
+		FProperty* Prop = *It;
+		if (!Prop) continue;
+
+		TSharedPtr<FJsonObject> P = MakeShared<FJsonObject>();
+		P->SetStringField(TEXT("name"), Prop->GetName());
+		P->SetStringField(TEXT("type"), Prop->GetCPPType());
+
+		FString ValueStr;
+		const void* ValPtr = Prop->ContainerPtrToValuePtr<void>(Template);
+		Prop->ExportText_Direct(ValueStr, ValPtr, ValPtr, Template, PPF_None);
+		P->SetStringField(TEXT("value"), ValueStr);
+
+		if (FArrayProperty* ArrProp = CastField<FArrayProperty>(Prop))
+		{
+			FScriptArrayHelper Helper(ArrProp, ValPtr);
+			P->SetNumberField(TEXT("count"), Helper.Num());
+			TArray<TSharedPtr<FJsonValue>> Elems;
+			for (int32 i = 0; i < Helper.Num(); ++i)
+			{
+				FString ElemStr;
+				ArrProp->Inner->ExportText_Direct(ElemStr, Helper.GetRawPtr(i), Helper.GetRawPtr(i), Template, PPF_None);
+				Elems.Add(MakeShared<FJsonValueString>(ElemStr));
+			}
+			P->SetArrayField(TEXT("elements"), Elems);
+		}
+		PropsArr.Add(MakeShared<FJsonValueObject>(P));
+	}
+	Result->SetArrayField(TEXT("properties"), PropsArr);
+	Result->SetNumberField(TEXT("propertyCount"), PropsArr.Num());
+	return MCPResult(Result);
+}
+
+// ─── #102 read_node_property ────────────────────────────────────────
+TSharedPtr<FJsonValue> FBlueprintHandlers::ReadNodeProperty(const TSharedPtr<FJsonObject>& Params)
+{
+	FString AssetPath;
+	if (auto Err = RequireStringAlt(Params, TEXT("path"), TEXT("assetPath"), AssetPath)) return Err;
+
+	FString GraphName = OptionalString(Params, TEXT("graphName"), TEXT("EventGraph"));
+	FString NodeId;
+	if (auto Err = RequireStringAlt(Params, TEXT("nodeId"), TEXT("nodeName"), NodeId)) return Err;
+	FString PinOrProp;
+	if (auto Err = RequireStringAlt(Params, TEXT("propertyName"), TEXT("pinName"), PinOrProp)) return Err;
+
+	UBlueprint* Blueprint = LoadBlueprint(AssetPath);
+	if (!Blueprint) return MCPError(TEXT("Blueprint not found"));
+	UEdGraph* Graph = FindGraph(Blueprint, GraphName);
+	if (!Graph) return MCPError(FString::Printf(TEXT("Graph not found: %s"), *GraphName));
+	UEdGraphNode* Node = FindNodeByGuidOrName(Graph, NodeId);
+	if (!Node) return MCPError(FString::Printf(TEXT("Node not found: %s"), *NodeId));
+
+	auto Result = MCPSuccess();
+	for (UEdGraphPin* Pin : Node->Pins)
+	{
+		if (Pin && Pin->PinName.ToString() == PinOrProp)
+		{
+			Result->SetStringField(TEXT("pinName"), PinOrProp);
+			Result->SetStringField(TEXT("defaultValue"), Pin->DefaultValue);
+			if (Pin->DefaultObject)
+			{
+				Result->SetStringField(TEXT("defaultObject"), Pin->DefaultObject->GetPathName());
+			}
+			return MCPResult(Result);
+		}
+	}
+
+	TArray<FString> Parts; PinOrProp.ParseIntoArray(Parts, TEXT("."));
+	UStruct* Cur = Node->GetClass();
+	void* Container = Node;
+	FProperty* Final = nullptr;
+	for (int32 i = 0; i < Parts.Num(); ++i)
+	{
+		FProperty* P = Cur->FindPropertyByName(FName(*Parts[i]));
+		if (!P) return MCPError(FString::Printf(TEXT("Property '%s' not found"), *Parts[i]));
+		if (i < Parts.Num() - 1)
+		{
+			FStructProperty* SP = CastField<FStructProperty>(P);
+			if (!SP) return MCPError(FString::Printf(TEXT("Not a struct: %s"), *Parts[i]));
+			Container = SP->ContainerPtrToValuePtr<void>(Container);
+			Cur = SP->Struct;
+		}
+		else Final = P;
+	}
+	if (!Final) return MCPError(TEXT("Property path unresolved"));
+
+	FString ValStr;
+	const void* ValPtr = Final->ContainerPtrToValuePtr<void>(Container);
+	Final->ExportText_Direct(ValStr, ValPtr, ValPtr, Node, PPF_None);
+	Result->SetStringField(TEXT("propertyName"), PinOrProp);
+	Result->SetStringField(TEXT("type"), Final->GetCPPType());
+	Result->SetStringField(TEXT("value"), ValStr);
+	return MCPResult(Result);
+}
+
+// ─── #115 reparent_component ────────────────────────────────────────
+TSharedPtr<FJsonValue> FBlueprintHandlers::ReparentComponent(const TSharedPtr<FJsonObject>& Params)
+{
+	FString AssetPath;
+	if (auto Err = RequireStringAlt(Params, TEXT("path"), TEXT("assetPath"), AssetPath)) return Err;
+	FString ComponentName;
+	if (auto Err = RequireString(Params, TEXT("componentName"), ComponentName)) return Err;
+	FString NewParent;
+	if (auto Err = RequireString(Params, TEXT("newParent"), NewParent)) return Err;
+
+	UBlueprint* Blueprint = LoadBlueprint(AssetPath);
+	if (!Blueprint) return MCPError(TEXT("Blueprint not found"));
+	USimpleConstructionScript* SCS = Blueprint->SimpleConstructionScript;
+	if (!SCS) return MCPError(TEXT("Blueprint has no SCS"));
+
+	USCS_Node* Child = nullptr; USCS_Node* Parent = nullptr;
+	for (USCS_Node* N : SCS->GetAllNodes())
+	{
+		if (!N) continue;
+		if (N->GetVariableName().ToString() == ComponentName) Child = N;
+		if (N->GetVariableName().ToString() == NewParent) Parent = N;
+	}
+	if (!Child) return MCPError(FString::Printf(TEXT("Component not found: %s"), *ComponentName));
+	if (!Parent) return MCPError(FString::Printf(TEXT("Parent not found: %s"), *NewParent));
+
+	SCS->RemoveNode(Child);
+	Parent->AddChildNode(Child);
+
+	FKismetEditorUtilities::CompileBlueprint(Blueprint);
+	UPackage* Pkg = Blueprint->GetOutermost();
+	if (Pkg)
+	{
+		Pkg->MarkPackageDirty();
+		FString FileName = FPackageName::LongPackageNameToFilename(Pkg->GetName(), FPackageName::GetAssetPackageExtension());
+		FSavePackageArgs SaveArgs; SaveArgs.TopLevelFlags = RF_Standalone;
+		UPackage::SavePackage(Pkg, nullptr, *FileName, SaveArgs);
+	}
+
+	auto Result = MCPSuccess();
+	MCPSetUpdated(Result);
+	Result->SetStringField(TEXT("componentName"), ComponentName);
+	Result->SetStringField(TEXT("newParent"), NewParent);
+	return MCPResult(Result);
+}
+
+// ─── #116 set_actor_tick_settings ───────────────────────────────────
+TSharedPtr<FJsonValue> FBlueprintHandlers::SetActorTickSettings(const TSharedPtr<FJsonObject>& Params)
+{
+	FString AssetPath;
+	if (auto Err = RequireStringAlt(Params, TEXT("path"), TEXT("assetPath"), AssetPath)) return Err;
+
+	UBlueprint* Blueprint = LoadBlueprint(AssetPath);
+	if (!Blueprint || !Blueprint->GeneratedClass) return MCPError(TEXT("Blueprint not found or not compiled"));
+	AActor* CDO = Cast<AActor>(Blueprint->GeneratedClass->GetDefaultObject(true));
+	if (!CDO) return MCPError(TEXT("Blueprint is not an Actor"));
+
+	bool bCanEverTick = CDO->PrimaryActorTick.bCanEverTick;
+	bool bStartWithTickEnabled = CDO->PrimaryActorTick.bStartWithTickEnabled;
+	double TickInterval = CDO->PrimaryActorTick.TickInterval;
+
+	Params->TryGetBoolField(TEXT("bCanEverTick"), bCanEverTick);
+	Params->TryGetBoolField(TEXT("bStartWithTickEnabled"), bStartWithTickEnabled);
+	Params->TryGetNumberField(TEXT("TickInterval"), TickInterval);
+
+	CDO->PrimaryActorTick.bCanEverTick = bCanEverTick;
+	CDO->PrimaryActorTick.bStartWithTickEnabled = bStartWithTickEnabled;
+	CDO->PrimaryActorTick.TickInterval = (float)TickInterval;
+
+	Blueprint->MarkPackageDirty();
+	UEditorAssetLibrary::SaveAsset(AssetPath);
+
+	auto Result = MCPSuccess();
+	MCPSetUpdated(Result);
+	Result->SetBoolField(TEXT("bCanEverTick"), bCanEverTick);
+	Result->SetBoolField(TEXT("bStartWithTickEnabled"), bStartWithTickEnabled);
+	Result->SetNumberField(TEXT("TickInterval"), TickInterval);
+	return MCPResult(Result);
+}
+
+// ─── #128 get_component_property — inherited-aware single-prop read ──
+// Params: assetPath, componentName, propertyName
+// Returns the effective default for the given child BP: the ICH override
+// if one exists, otherwise the parent template value. Supports dotted
+// property paths ("RelativeLocation.X").
+TSharedPtr<FJsonValue> FBlueprintHandlers::GetComponentProperty(const TSharedPtr<FJsonObject>& Params)
+{
+	FString AssetPath;
+	if (auto Err = RequireStringAlt(Params, TEXT("path"), TEXT("assetPath"), AssetPath)) return Err;
+	FString ComponentName;
+	if (auto Err = RequireString(Params, TEXT("componentName"), ComponentName)) return Err;
+	FString PropertyName;
+	if (auto Err = RequireString(Params, TEXT("propertyName"), PropertyName)) return Err;
+
+	UBlueprint* Blueprint = LoadBlueprint(AssetPath);
+	if (!Blueprint) return MCPError(FString::Printf(TEXT("Blueprint not found: %s"), *AssetPath));
+
+	bool bIsInherited = false;
+	TArray<FString> Available;
+	UActorComponent* Template = ResolveComponentTemplate(
+		Blueprint, ComponentName, /*bForWrite=*/false, bIsInherited, Available);
+
+	if (!Template)
+	{
+		return MCPError(FString::Printf(
+			TEXT("Component '%s' not found. Available: [%s]"),
+			*ComponentName, *FString::Join(Available, TEXT(", "))));
+	}
+
+	TArray<FString> PathParts;
+	PropertyName.ParseIntoArray(PathParts, TEXT("."));
+
+	UStruct* CurrentStruct = Template->GetClass();
+	void* CurrentContainer = Template;
+	FProperty* FinalProp = nullptr;
+
+	for (int32 i = 0; i < PathParts.Num(); ++i)
+	{
+		FProperty* Prop = CurrentStruct->FindPropertyByName(FName(*PathParts[i]));
+		if (!Prop)
+		{
+			return MCPError(FString::Printf(
+				TEXT("Property '%s' not found on %s"), *PathParts[i], *CurrentStruct->GetName()));
+		}
+		if (i < PathParts.Num() - 1)
+		{
+			FStructProperty* StructProp = CastField<FStructProperty>(Prop);
+			if (!StructProp)
+			{
+				return MCPError(FString::Printf(TEXT("Not a struct: %s"), *PathParts[i]));
+			}
+			CurrentContainer = StructProp->ContainerPtrToValuePtr<void>(CurrentContainer);
+			CurrentStruct = StructProp->Struct;
+		}
+		else
+		{
+			FinalProp = Prop;
+		}
+	}
+	if (!FinalProp) return MCPError(TEXT("Property path unresolved"));
+
+	FString ValueStr;
+	const void* ValPtr = FinalProp->ContainerPtrToValuePtr<void>(CurrentContainer);
+	FinalProp->ExportText_Direct(ValueStr, ValPtr, ValPtr, Template, PPF_None);
+
+	auto Result = MCPSuccess();
+	Result->SetStringField(TEXT("path"), AssetPath);
+	Result->SetStringField(TEXT("componentName"), ComponentName);
+	Result->SetStringField(TEXT("propertyName"), PropertyName);
+	Result->SetStringField(TEXT("type"), FinalProp->GetCPPType());
+	Result->SetStringField(TEXT("value"), ValueStr);
+	Result->SetBoolField(TEXT("inherited"), bIsInherited);
+	Result->SetStringField(TEXT("templateClass"), Template->GetClass()->GetName());
 	return MCPResult(Result);
 }

@@ -59,6 +59,7 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("move_asset"), &MoveAsset);
 	Registry.RegisterHandler(TEXT("delete_asset"), &DeleteAsset);
 	Registry.RegisterHandler(TEXT("delete_asset_batch"), &DeleteAssetBatch);
+	Registry.RegisterHandler(TEXT("bulk_rename_assets"), &BulkRename);
 	Registry.RegisterHandler(TEXT("create_data_asset"), &CreateDataAsset);
 	Registry.RegisterHandler(TEXT("save_asset"), &SaveAsset);
 	Registry.RegisterHandler(TEXT("list_textures"), &ListTextures);
@@ -769,6 +770,157 @@ TSharedPtr<FJsonValue> FAssetHandlers::DeleteAssetBatch(const TSharedPtr<FJsonOb
 	Result->SetNumberField(TEXT("absent"), Absent);
 	Result->SetNumberField(TEXT("failed"), Failed);
 	Result->SetNumberField(TEXT("total"), PerPath.Num());
+	return MCPResult(Result);
+}
+
+// ─── #128 item 6 — bulk_rename_assets ───────────────────────────────
+// Scene-referenced assets are expensive to rename one-by-one because each
+// individual rename forces a redirector-fixup / level-reference-update
+// pass across the whole project. At batches of 10-15 this can crash the
+// editor (observed on the user's Vale project).
+//
+// Content Browser drag-moves use IAssetTools::RenameAssets() with an
+// array of FAssetRenameData — that collapses every rename into a single
+// transaction with one redirector-fixup pass. This handler mirrors that
+// pattern.
+//
+// Params:
+//   renames: [{ sourcePath, destinationPath }, ...]
+//     or    [{ assetPath, newName }, ...]      (same as rename_asset)
+//     or    [{ sourcePath, newPackagePath, newName }, ...]
+TSharedPtr<FJsonValue> FAssetHandlers::BulkRename(const TSharedPtr<FJsonObject>& Params)
+{
+	const TArray<TSharedPtr<FJsonValue>>* Items = nullptr;
+	if (!Params->TryGetArrayField(TEXT("renames"), Items) &&
+		!Params->TryGetArrayField(TEXT("items"), Items))
+	{
+		return MCPError(TEXT("Missing 'renames' array parameter"));
+	}
+
+	TArray<FAssetRenameData> BatchRenames;
+	TArray<TSharedPtr<FJsonValue>> PerItem;
+	int32 Skipped = 0;
+
+	for (const TSharedPtr<FJsonValue>& V : *Items)
+	{
+		if (!V.IsValid()) continue;
+		const TSharedPtr<FJsonObject>* EntryPtr = nullptr;
+		if (!V->TryGetObject(EntryPtr) || !EntryPtr || !EntryPtr->IsValid())
+		{
+			continue;
+		}
+		const TSharedPtr<FJsonObject>& Entry = *EntryPtr;
+
+		TSharedPtr<FJsonObject> Record = MakeShared<FJsonObject>();
+
+		FString SourcePath;
+		FString NewPackagePath;
+		FString NewName;
+
+		if (Entry->TryGetStringField(TEXT("sourcePath"), SourcePath))
+		{
+			FString DestPath;
+			if (Entry->TryGetStringField(TEXT("destinationPath"), DestPath))
+			{
+				// Split DestPath "/Game/Foo/Bar.Bar" → "/Game/Foo" + "Bar"
+				FString Pkg, ObjName;
+				DestPath.Split(TEXT("."), &Pkg, &ObjName, ESearchCase::CaseSensitive, ESearchDir::FromEnd);
+				if (ObjName.IsEmpty())
+				{
+					// Accept bare package form "/Game/Foo/Bar"
+					Pkg = DestPath;
+					ObjName = FPaths::GetBaseFilename(DestPath);
+				}
+				NewPackagePath = FPaths::GetPath(Pkg);
+				NewName = ObjName;
+			}
+			else
+			{
+				Entry->TryGetStringField(TEXT("newPackagePath"), NewPackagePath);
+				Entry->TryGetStringField(TEXT("newName"), NewName);
+			}
+		}
+		else if (Entry->TryGetStringField(TEXT("assetPath"), SourcePath))
+		{
+			Entry->TryGetStringField(TEXT("newName"), NewName);
+			NewPackagePath = FPaths::GetPath(SourcePath);
+		}
+
+		Record->SetStringField(TEXT("sourcePath"), SourcePath);
+
+		if (SourcePath.IsEmpty() || NewName.IsEmpty() || NewPackagePath.IsEmpty())
+		{
+			Record->SetStringField(TEXT("status"), TEXT("invalid"));
+			PerItem.Add(MakeShared<FJsonValueObject>(Record));
+			Skipped++;
+			continue;
+		}
+
+		UObject* Asset = UEditorAssetLibrary::LoadAsset(SourcePath);
+		if (!Asset)
+		{
+			Record->SetStringField(TEXT("status"), TEXT("not_found"));
+			PerItem.Add(MakeShared<FJsonValueObject>(Record));
+			Skipped++;
+			continue;
+		}
+
+		FAssetRenameData Data(Asset, NewPackagePath, NewName);
+		BatchRenames.Add(Data);
+
+		Record->SetStringField(TEXT("destinationPath"),
+			FString::Printf(TEXT("%s/%s.%s"), *NewPackagePath, *NewName, *NewName));
+		PerItem.Add(MakeShared<FJsonValueObject>(Record));
+	}
+
+	if (BatchRenames.Num() == 0)
+	{
+		return MCPError(TEXT("No valid renames to process"));
+	}
+
+	FAssetToolsModule& AssetToolsModule = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools"));
+	IAssetTools& AssetTools = AssetToolsModule.Get();
+
+	// RenameAssets wraps all renames in a single transaction + one
+	// redirector-fixup pass — the same op the Content Browser performs on
+	// drag-and-drop. Returns true if every rename succeeded.
+	bool bOk = AssetTools.RenameAssets(BatchRenames);
+
+	// Mark each batched rename with its post-op status.
+	int32 Succeeded = 0;
+	int32 Failed = 0;
+	int32 Idx = 0;
+	for (int32 i = 0; i < PerItem.Num(); ++i)
+	{
+		TSharedPtr<FJsonObject> Rec = PerItem[i]->AsObject();
+		if (!Rec.IsValid() || Rec->HasField(TEXT("status"))) continue;
+
+		const FAssetRenameData& Data = BatchRenames[Idx++];
+		// A rename is considered to have succeeded if the asset now lives
+		// at the destination. When bOk==false, some entries may still have
+		// landed — check per-item.
+		const FString DestFullPath = FString::Printf(TEXT("%s/%s.%s"),
+			*Data.NewPackagePath, *Data.NewName, *Data.NewName);
+		if (UEditorAssetLibrary::DoesAssetExist(DestFullPath))
+		{
+			Rec->SetStringField(TEXT("status"), TEXT("renamed"));
+			Succeeded++;
+		}
+		else
+		{
+			Rec->SetStringField(TEXT("status"), TEXT("failed"));
+			Failed++;
+		}
+	}
+
+	auto Result = MCPSuccess();
+	if (Succeeded > 0) MCPSetUpdated(Result);
+	Result->SetBoolField(TEXT("success"), bOk);
+	Result->SetNumberField(TEXT("renamed"), Succeeded);
+	Result->SetNumberField(TEXT("failed"), Failed);
+	Result->SetNumberField(TEXT("skipped"), Skipped);
+	Result->SetNumberField(TEXT("total"), PerItem.Num());
+	Result->SetArrayField(TEXT("results"), PerItem);
 	return MCPResult(Result);
 }
 

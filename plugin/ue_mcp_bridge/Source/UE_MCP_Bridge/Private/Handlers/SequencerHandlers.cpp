@@ -153,17 +153,22 @@ TSharedPtr<FJsonValue> FSequencerHandlers::ReadSequenceInfo(const TSharedPtr<FJs
 				TSharedPtr<FJsonObject> FirstKeys = MakeShared<FJsonObject>();
 				for (FName ChName : ChannelNames)
 				{
-					if (FMovieSceneDoubleChannel* Ch = Proxy.GetChannel<FMovieSceneDoubleChannel>(ChName))
+					// UE 5.7: GetChannel<T>(FName) overload was removed. Use
+					// GetChannelByName<T>(FName) which returns a typed handle,
+					// and GetData().GetValues() now yields a TArrayView.
+					if (FMovieSceneDoubleChannel* Ch =
+						Proxy.GetChannelByName<FMovieSceneDoubleChannel>(ChName).Get())
 					{
-						const TArray<double>& Values = Ch->GetData().GetValues();
+						TArrayView<const FMovieSceneDoubleValue> Values = Ch->GetData().GetValues();
 						if (Values.Num() > 0)
 						{
-							FirstKeys->SetNumberField(ChName.ToString(), Values[0]);
+							FirstKeys->SetNumberField(ChName.ToString(), Values[0].Value);
 						}
 					}
-					else if (FMovieSceneFloatChannel* FCh = Proxy.GetChannel<FMovieSceneFloatChannel>(ChName))
+					else if (FMovieSceneFloatChannel* FCh =
+						Proxy.GetChannelByName<FMovieSceneFloatChannel>(ChName).Get())
 					{
-						const TArray<FMovieSceneFloatValue>& FVs = FCh->GetData().GetValues();
+						TArrayView<const FMovieSceneFloatValue> FVs = FCh->GetData().GetValues();
 						if (FVs.Num() > 0)
 						{
 							FirstKeys->SetNumberField(ChName.ToString(), FVs[0].Value);

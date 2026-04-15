@@ -4,7 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { EditorBridge } from "./bridge.js";
 import { ProjectContext } from "./project.js";
-import { deploy, deploySummary } from "./deployer.js";
+import { attach, attachSummary } from "./deployer.js";
 import { SERVER_INSTRUCTIONS } from "./instructions.js";
 import { isDirectiveResponse, type ToolDef, type ToolContext } from "./types.js";
 import { McpError } from "./errors.js";
@@ -135,8 +135,10 @@ async function main() {
       project.setProject(projectArg);
       console.error(`[ue-mcp] Project loaded: ${project.projectName} (engine ${project.engineAssociation ?? "unknown"})`);
 
-      const result = deploy(project);
-      console.error(`[ue-mcp] ${deploySummary(result)}`);
+      // Non-destructive attach — never overwrites local bridge source.
+      // Source deployment is reserved for `ue-mcp init` / `ue-mcp update`.
+      const result = attach(project);
+      console.error(`[ue-mcp] ${attachSummary(result)}`);
     } catch (e) {
       console.error(`[ue-mcp] Failed to initialize project: ${e instanceof Error ? e.message : e}`);
     }

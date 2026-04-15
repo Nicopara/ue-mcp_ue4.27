@@ -22,6 +22,10 @@
 #include "Components/DirectionalLightComponent.h"
 #include "Components/RectLightComponent.h"
 #include "Components/LightComponent.h"
+#include "Components/SkyLightComponent.h"
+#include "Components/ExponentialHeightFogComponent.h"
+#include "Engine/ExponentialHeightFog.h"
+#include "Engine/SkyLight.h"
 #include "Engine/BrushBuilder.h"
 #include "GameFramework/Volume.h"
 #include "Engine/BlockingVolume.h"
@@ -67,11 +71,15 @@ void FLevelHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("set_volume_properties"), &SetVolumeProperties);
 	Registry.RegisterHandler(TEXT("get_world_settings"), &GetWorldSettings);
 	Registry.RegisterHandler(TEXT("set_world_settings"), &SetWorldSettings);
+	Registry.RegisterHandler(TEXT("set_fog_properties"), &SetFogProperties);
+	Registry.RegisterHandler(TEXT("get_actors_by_class"), &GetActorsByClass);
 }
 
 TSharedPtr<FJsonValue> FLevelHandlers::GetOutliner(const TSharedPtr<FJsonObject>& Params)
 {
-	REQUIRE_EDITOR_WORLD(World);
+	FString WorldScope = OptionalString(Params, TEXT("world"), TEXT("editor"));
+	UWorld* World = ResolveWorldScope(WorldScope);
+	if (!World) return MCPError(FString::Printf(TEXT("World not available for scope '%s'"), *WorldScope));
 
 	FString ClassFilter = OptionalString(Params, TEXT("classFilter"));
 	FString NameFilter = OptionalString(Params, TEXT("nameFilter"));
@@ -312,28 +320,50 @@ TSharedPtr<FJsonValue> FLevelHandlers::DeleteActor(const TSharedPtr<FJsonObject>
 TSharedPtr<FJsonValue> FLevelHandlers::GetActorDetails(const TSharedPtr<FJsonObject>& Params)
 {
 	FString ActorLabel;
-	if (auto Err = RequireString(Params, TEXT("actorLabel"), ActorLabel)) return Err;
+	FString ActorPath;
+	bool bHasLabel = Params->TryGetStringField(TEXT("actorLabel"), ActorLabel);
+	bool bHasPath = Params->TryGetStringField(TEXT("actorPath"), ActorPath);
+	if (!bHasLabel && !bHasPath)
+	{
+		return MCPError(TEXT("Missing 'actorLabel' or 'actorPath' parameter"));
+	}
 
-	REQUIRE_EDITOR_WORLD(World);
+	// World selection: "editor" (default) or "pie" (#111)
+	FString WorldScope = OptionalString(Params, TEXT("world"), TEXT("editor"));
+	UWorld* World = nullptr;
+	if (WorldScope.Equals(TEXT("pie"), ESearchCase::IgnoreCase) || WorldScope.Equals(TEXT("game"), ESearchCase::IgnoreCase))
+	{
+		for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
+		{
+			if (Ctx.WorldType == EWorldType::PIE || Ctx.WorldType == EWorldType::Game)
+			{
+				World = Ctx.World();
+				break;
+			}
+		}
+		if (!World) return MCPError(TEXT("No PIE/Game world active"));
+	}
+	else
+	{
+		World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+		if (!World) return MCPError(TEXT("No editor world available"));
+	}
 
-	// Find actor by label
 	AActor* Actor = nullptr;
 	for (TActorIterator<AActor> ActorIt(World); ActorIt; ++ActorIt)
 	{
-		if ((*ActorIt)->GetActorLabel() == ActorLabel)
-		{
-			Actor = *ActorIt;
-			break;
-		}
+		if (bHasPath && (*ActorIt)->GetPathName() == ActorPath) { Actor = *ActorIt; break; }
+		if (bHasLabel && (*ActorIt)->GetActorLabel() == ActorLabel) { Actor = *ActorIt; break; }
 	}
 
 	if (!Actor)
 	{
-		return MCPError(FString::Printf(TEXT("Actor not found: %s"), *ActorLabel));
+		return MCPError(FString::Printf(TEXT("Actor not found: %s"), bHasPath ? *ActorPath : *ActorLabel));
 	}
 
 	auto Result = MCPSuccess();
 	Result->SetStringField(TEXT("label"), Actor->GetActorLabel());
+	Result->SetStringField(TEXT("name"), Actor->GetName());
 	Result->SetStringField(TEXT("class"), Actor->GetClass()->GetName());
 	Result->SetStringField(TEXT("path"), Actor->GetPathName());
 
@@ -343,6 +373,64 @@ TSharedPtr<FJsonValue> FLevelHandlers::GetActorDetails(const TSharedPtr<FJsonObj
 	LocationObj->SetNumberField(TEXT("y"), Location.Y);
 	LocationObj->SetNumberField(TEXT("z"), Location.Z);
 	Result->SetObjectField(TEXT("location"), LocationObj);
+
+	FRotator Rot = Actor->GetActorRotation();
+	TSharedPtr<FJsonObject> RotObj = MakeShared<FJsonObject>();
+	RotObj->SetNumberField(TEXT("pitch"), Rot.Pitch);
+	RotObj->SetNumberField(TEXT("yaw"), Rot.Yaw);
+	RotObj->SetNumberField(TEXT("roll"), Rot.Roll);
+	Result->SetObjectField(TEXT("rotation"), RotObj);
+
+	FVector Scale = Actor->GetActorScale3D();
+	TSharedPtr<FJsonObject> ScaleObj = MakeShared<FJsonObject>();
+	ScaleObj->SetNumberField(TEXT("x"), Scale.X);
+	ScaleObj->SetNumberField(TEXT("y"), Scale.Y);
+	ScaleObj->SetNumberField(TEXT("z"), Scale.Z);
+	Result->SetObjectField(TEXT("scale"), ScaleObj);
+
+	if (AActor* Parent = Actor->GetAttachParentActor())
+	{
+		Result->SetStringField(TEXT("attachParent"), Parent->GetActorLabel());
+	}
+
+	// Components (always on) — name + class
+	TArray<UActorComponent*> Components;
+	Actor->GetComponents(Components);
+	TArray<TSharedPtr<FJsonValue>> CompArr;
+	for (UActorComponent* Comp : Components)
+	{
+		if (!Comp) continue;
+		TSharedPtr<FJsonObject> C = MakeShared<FJsonObject>();
+		C->SetStringField(TEXT("name"), Comp->GetName());
+		C->SetStringField(TEXT("class"), Comp->GetClass()->GetName());
+		CompArr.Add(MakeShared<FJsonValueObject>(C));
+	}
+	Result->SetArrayField(TEXT("components"), CompArr);
+
+	// #125: optional includeProperties=true dumps UPROPERTY name/type/value
+	if (OptionalBool(Params, TEXT("includeProperties")))
+	{
+		FString PropFilter = OptionalString(Params, TEXT("propertyName"));
+		TArray<TSharedPtr<FJsonValue>> PropsArr;
+		for (TFieldIterator<FProperty> It(Actor->GetClass()); It; ++It)
+		{
+			FProperty* Prop = *It;
+			if (!Prop) continue;
+			if (!PropFilter.IsEmpty() && Prop->GetName() != PropFilter) continue;
+
+			TSharedPtr<FJsonObject> P = MakeShared<FJsonObject>();
+			P->SetStringField(TEXT("name"), Prop->GetName());
+			P->SetStringField(TEXT("type"), Prop->GetCPPType());
+
+			FString ValueStr;
+			const void* ValuePtr = Prop->ContainerPtrToValuePtr<void>(Actor);
+			Prop->ExportText_Direct(ValueStr, ValuePtr, ValuePtr, Actor, PPF_None);
+			P->SetStringField(TEXT("value"), ValueStr);
+			PropsArr.Add(MakeShared<FJsonValueObject>(P));
+		}
+		Result->SetArrayField(TEXT("properties"), PropsArr);
+		Result->SetNumberField(TEXT("propertyCount"), PropsArr.Num());
+	}
 
 	return MCPResult(Result);
 }
@@ -733,6 +821,7 @@ TSharedPtr<FJsonValue> FLevelHandlers::SetLightProperties(const TSharedPtr<FJson
 	// Capture previous values before mutation for self-inverse rollback.
 	const double PreviousIntensity = LightComponent->Intensity;
 	const FLinearColor PreviousColor = LightComponent->GetLightColor();
+	const FRotator PreviousRotation = Actor->GetActorRotation();
 
 	bool bAnyChange = false;
 
@@ -752,6 +841,29 @@ TSharedPtr<FJsonValue> FLevelHandlers::SetLightProperties(const TSharedPtr<FJson
 		(*ColorObj)->TryGetNumberField(TEXT("b"), B);
 		LightComponent->SetLightColor(FLinearColor(R / 255.0f, G / 255.0f, B / 255.0f));
 		bAnyChange = true;
+	}
+
+	// #94: DirectionalLight rotation support (sun angle for time-of-day)
+	const TSharedPtr<FJsonObject>* RotObj = nullptr;
+	if (Params->TryGetObjectField(TEXT("rotation"), RotObj))
+	{
+		double Pitch = 0.0, Yaw = 0.0, Roll = 0.0;
+		(*RotObj)->TryGetNumberField(TEXT("pitch"), Pitch);
+		(*RotObj)->TryGetNumberField(TEXT("yaw"), Yaw);
+		(*RotObj)->TryGetNumberField(TEXT("roll"), Roll);
+		Actor->SetActorRotation(FRotator((float)Pitch, (float)Yaw, (float)Roll));
+		bAnyChange = true;
+	}
+
+	// #94: SkyLight recapture after intensity/color change
+	if (USkyLightComponent* Sky = Cast<USkyLightComponent>(LightComponent))
+	{
+		bool bRecapture = false;
+		Params->TryGetBoolField(TEXT("recaptureSky"), bRecapture);
+		if (bRecapture || bAnyChange)
+		{
+			Sky->RecaptureSky();
+		}
 	}
 
 	auto Result = MCPSuccess();
@@ -1186,6 +1298,52 @@ TSharedPtr<FJsonValue> FLevelHandlers::SetComponentProperty(const TSharedPtr<FJs
 	FString ValueStr;
 	if ((*ValueField)->TryGetString(ValueStr))
 	{
+		// #121: resolve bare actor labels (e.g. TargetActor=BP_Portcullis) to full object paths
+		// so ImportText_Direct can resolve TObjectPtr<AActor> fields in struct arrays.
+		if (!ValueStr.IsEmpty() && ValueStr.Contains(TEXT("=")))
+		{
+			FString Result;
+			Result.Reserve(ValueStr.Len());
+			int32 i = 0;
+			while (i < ValueStr.Len())
+			{
+				TCHAR C = ValueStr[i];
+				Result.AppendChar(C);
+				if (C == TEXT('='))
+				{
+					// Gather the following identifier token (letters, digits, underscore) — stop before quotes/parens/paths
+					int32 Start = i + 1;
+					int32 End = Start;
+					while (End < ValueStr.Len())
+					{
+						TCHAR TC = ValueStr[End];
+						if (FChar::IsAlnum(TC) || TC == TEXT('_')) End++;
+						else break;
+					}
+					if (End > Start && (End >= ValueStr.Len() || ValueStr[End] == TEXT(',') || ValueStr[End] == TEXT(')') || ValueStr[End] == TEXT(']') || ValueStr[End] == TEXT('}')))
+					{
+						FString Token = ValueStr.Mid(Start, End - Start);
+						// Skip obvious non-identifiers
+						if (Token != TEXT("True") && Token != TEXT("False") && Token != TEXT("None") && !Token.IsNumeric())
+						{
+							// Try to resolve as actor label
+							for (TActorIterator<AActor> It(World); It; ++It)
+							{
+								if (It->GetActorLabel() == Token)
+								{
+									Result.Append(It->GetPathName());
+									i = End;
+									goto AppendDone;
+								}
+							}
+						}
+					}
+				}
+			AppendDone:
+				i++;
+			}
+			ValueStr = Result;
+		}
 		Prop->ImportText_Direct(*ValueStr, Prop->ContainerPtrToValuePtr<void>(TargetComp), TargetComp, PPF_None);
 	}
 	else
@@ -1503,5 +1661,96 @@ TSharedPtr<FJsonValue> FLevelHandlers::SetActorMaterial(const TSharedPtr<FJsonOb
 		MCPSetRollback(Result, TEXT("set_actor_material"), Payload);
 	}
 
+	return MCPResult(Result);
+}
+
+// #94: ExponentialHeightFog tuning
+TSharedPtr<FJsonValue> FLevelHandlers::SetFogProperties(const TSharedPtr<FJsonObject>& Params)
+{
+	FString WorldScope = OptionalString(Params, TEXT("world"), TEXT("editor"));
+	UWorld* World = ResolveWorldScope(WorldScope);
+	if (!World) return MCPError(TEXT("World not available"));
+
+	FString ActorLabel = OptionalString(Params, TEXT("actorLabel"));
+
+	AExponentialHeightFog* Fog = nullptr;
+	for (TActorIterator<AExponentialHeightFog> It(World); It; ++It)
+	{
+		if (ActorLabel.IsEmpty() || It->GetActorLabel() == ActorLabel)
+		{
+			Fog = *It;
+			break;
+		}
+	}
+	if (!Fog) return MCPError(TEXT("No ExponentialHeightFog actor found"));
+
+	UExponentialHeightFogComponent* FC = Fog->GetComponent();
+	if (!FC) return MCPError(TEXT("Fog component missing"));
+
+	double Density = 0.0;
+	if (Params->TryGetNumberField(TEXT("fogDensity"), Density))
+	{
+		FC->FogDensity = (float)Density;
+	}
+	double HeightFalloff = 0.0;
+	if (Params->TryGetNumberField(TEXT("fogHeightFalloff"), HeightFalloff))
+	{
+		FC->FogHeightFalloff = (float)HeightFalloff;
+	}
+	double StartDistance = 0.0;
+	if (Params->TryGetNumberField(TEXT("startDistance"), StartDistance))
+	{
+		FC->StartDistance = (float)StartDistance;
+	}
+	const TSharedPtr<FJsonObject>* ColorObj = nullptr;
+	if (Params->TryGetObjectField(TEXT("fogInscatteringColor"), ColorObj) ||
+	    Params->TryGetObjectField(TEXT("color"), ColorObj))
+	{
+		double R = 255, G = 255, B = 255;
+		(*ColorObj)->TryGetNumberField(TEXT("r"), R);
+		(*ColorObj)->TryGetNumberField(TEXT("g"), G);
+		(*ColorObj)->TryGetNumberField(TEXT("b"), B);
+		FC->FogInscatteringLuminance = FLinearColor(R / 255.0f, G / 255.0f, B / 255.0f);
+	}
+
+	FC->MarkRenderStateDirty();
+
+	auto Result = MCPSuccess();
+	MCPSetUpdated(Result);
+	Result->SetStringField(TEXT("actorLabel"), Fog->GetActorLabel());
+	Result->SetNumberField(TEXT("fogDensity"), FC->FogDensity);
+	Result->SetNumberField(TEXT("fogHeightFalloff"), FC->FogHeightFalloff);
+	return MCPResult(Result);
+}
+
+// #94: Bulk actor lookup helper
+TSharedPtr<FJsonValue> FLevelHandlers::GetActorsByClass(const TSharedPtr<FJsonObject>& Params)
+{
+	FString ClassName;
+	if (auto Err = RequireString(Params, TEXT("className"), ClassName)) return Err;
+
+	FString WorldScope = OptionalString(Params, TEXT("world"), TEXT("editor"));
+	UWorld* World = ResolveWorldScope(WorldScope);
+	if (!World) return MCPError(TEXT("World not available"));
+
+	TArray<TSharedPtr<FJsonValue>> Out;
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* A = *It;
+		if (!A) continue;
+		FString CName = A->GetClass()->GetName();
+		if (CName == ClassName || A->GetClass()->IsChildOf(AActor::StaticClass()) && CName.Contains(ClassName))
+		{
+			TSharedPtr<FJsonObject> E = MakeShared<FJsonObject>();
+			E->SetStringField(TEXT("label"), A->GetActorLabel());
+			E->SetStringField(TEXT("class"), CName);
+			E->SetStringField(TEXT("path"), A->GetPathName());
+			Out.Add(MakeShared<FJsonValueObject>(E));
+		}
+	}
+
+	auto Result = MCPSuccess();
+	Result->SetArrayField(TEXT("actors"), Out);
+	Result->SetNumberField(TEXT("count"), Out.Num());
 	return MCPResult(Result);
 }

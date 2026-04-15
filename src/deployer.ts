@@ -10,6 +10,16 @@ export interface DeployResult {
   error?: string;
 }
 
+export interface AttachResult {
+  pythonPluginEnabled: boolean;
+  cppPluginEnabled: boolean;
+  cppPluginPresent: boolean;
+  packagedVersion: string | null;
+  installedVersion: string | null;
+  versionMatch: boolean | null;
+  error?: string;
+}
+
 /**
  * Deploy the C++ bridge plugin to the target UE project.
  *
@@ -44,6 +54,101 @@ export function deploySummary(r: DeployResult): string {
   if (r.cppPluginEnabled) changes.push("enabled UE_MCP_Bridge in .uproject");
   if (changes.length === 0) return "Bridge already configured";
   return "Bridge setup: " + changes.join(", ");
+}
+
+/**
+ * Non-destructive attach used on normal MCP server startup.
+ *
+ * Unlike `deploy()`, this NEVER overwrites bridge source under
+ * `Plugins/UE_MCP_Bridge/Source/` — so local forks/edits and
+ * project-tracked bridge revisions are preserved. It only:
+ *   - ensures PythonScriptPlugin is listed in the .uproject
+ *   - ensures UE_MCP_Bridge is listed in the .uproject
+ *   - reports plugin presence + version for a warning-level check
+ *
+ * If the plugin is missing or a version mismatch is detected, callers
+ * should surface that to the user and ask them to run `ue-mcp init`
+ * or `ue-mcp update` explicitly.
+ */
+export function attach(context: ProjectContext): AttachResult {
+  const result: AttachResult = {
+    pythonPluginEnabled: false,
+    cppPluginEnabled: false,
+    cppPluginPresent: false,
+    packagedVersion: null,
+    installedVersion: null,
+    versionMatch: null,
+  };
+
+  try {
+    const uprojectPath = context.projectPath!;
+    result.pythonPluginEnabled = ensurePythonPlugin(uprojectPath);
+    result.cppPluginEnabled = ensureCppPluginEnabled(uprojectPath);
+
+    const projectDir = path.dirname(uprojectPath);
+    const installedUplugin = path.join(
+      projectDir,
+      "Plugins",
+      "UE_MCP_Bridge",
+      "UE_MCP_Bridge.uplugin",
+    );
+    result.cppPluginPresent = fs.existsSync(installedUplugin);
+    result.installedVersion = readUpluginVersion(installedUplugin);
+    result.packagedVersion = readUpluginVersion(packagedUpluginPath());
+
+    if (result.installedVersion && result.packagedVersion) {
+      result.versionMatch = result.installedVersion === result.packagedVersion;
+    }
+  } catch (e) {
+    result.error = e instanceof Error ? e.message : String(e);
+  }
+
+  return result;
+}
+
+export function attachSummary(r: AttachResult): string {
+  if (r.error) return `Bridge attach failed: ${r.error}`;
+
+  const notes: string[] = [];
+  if (r.pythonPluginEnabled) notes.push("enabled PythonScriptPlugin in .uproject");
+  if (r.cppPluginEnabled) notes.push("enabled UE_MCP_Bridge in .uproject");
+
+  if (!r.cppPluginPresent) {
+    notes.push(
+      `UE_MCP_Bridge plugin NOT installed — run \`ue-mcp init <uproject>\` to deploy (packaged v${r.packagedVersion ?? "?"})`,
+    );
+  } else if (r.versionMatch === false) {
+    notes.push(
+      `bridge version mismatch — installed v${r.installedVersion}, packaged v${r.packagedVersion}. Source left untouched; run \`ue-mcp update <uproject>\` to upgrade.`,
+    );
+  } else if (r.versionMatch === true) {
+    notes.push(`bridge v${r.installedVersion} present (source untouched)`);
+  } else {
+    notes.push("bridge present (version unreadable, source untouched)");
+  }
+
+  return "Bridge attach: " + notes.join("; ");
+}
+
+function packagedUpluginPath(): string {
+  return path.resolve(
+    import.meta.dirname ?? path.dirname(new URL(import.meta.url).pathname),
+    "..",
+    "plugin",
+    "ue_mcp_bridge",
+    "UE_MCP_Bridge.uplugin",
+  );
+}
+
+function readUpluginVersion(upluginPath: string): string | null {
+  try {
+    if (!fs.existsSync(upluginPath)) return null;
+    const raw = fs.readFileSync(upluginPath, "utf-8");
+    const parsed = JSON.parse(raw);
+    return typeof parsed.VersionName === "string" ? parsed.VersionName : null;
+  } catch {
+    return null;
+  }
 }
 
 /* ------------------------------------------------------------------ */

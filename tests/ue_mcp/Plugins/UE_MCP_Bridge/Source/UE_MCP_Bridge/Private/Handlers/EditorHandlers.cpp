@@ -93,6 +93,8 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("build_project"), &BuildProject);
 	// #49: Generate project files
 	Registry.RegisterHandler(TEXT("generate_project_files"), &GenerateProjectFiles);
+	// #126: fast-forward PIE game time
+	Registry.RegisterHandler(TEXT("set_pie_time_scale"), &SetPieTimeScale);
 }
 
 TSharedPtr<FJsonValue> FEditorHandlers::ExecuteCommand(const TSharedPtr<FJsonObject>& Params)
@@ -262,12 +264,108 @@ TSharedPtr<FJsonValue> FEditorHandlers::SetConfig(const TSharedPtr<FJsonObject>&
 	GConfig->SetString(*Section, *Key, *Value, IniPath);
 	GConfig->Flush(false, IniPath);
 
+	// #106: GConfig->Flush sometimes does not persist newly-created sections
+	// for DeveloperSettings-backed classes. Verify on disk; if the section or
+	// key is missing, fall back to direct file write.
+	auto VerifyOnDisk = [&]() -> bool
+	{
+		FString FileContents;
+		if (!FFileHelper::LoadFileToString(FileContents, *IniPath))
+		{
+			return false;
+		}
+		const FString SectionHeader = FString::Printf(TEXT("[%s]"), *Section);
+		int32 SectionIdx = FileContents.Find(SectionHeader);
+		if (SectionIdx == INDEX_NONE) return false;
+		// Find next section boundary
+		int32 NextSection = FileContents.Find(TEXT("\n["), ESearchCase::CaseSensitive, ESearchDir::FromStart, SectionIdx + SectionHeader.Len());
+		int32 EndIdx = NextSection == INDEX_NONE ? FileContents.Len() : NextSection;
+		FString SectionBody = FileContents.Mid(SectionIdx, EndIdx - SectionIdx);
+		return SectionBody.Contains(FString::Printf(TEXT("%s="), *Key));
+	};
+
+	bool bPersisted = VerifyOnDisk();
+	if (!bPersisted)
+	{
+		// Direct-write fallback. Load file (create if missing), ensure section exists, upsert key=value.
+		FString FileContents;
+		if (!FFileHelper::LoadFileToString(FileContents, *IniPath))
+		{
+			FileContents = TEXT("");
+		}
+
+		TArray<FString> Lines;
+		FileContents.ParseIntoArrayLines(Lines, /*CullEmpty*/ false);
+
+		const FString SectionHeader = FString::Printf(TEXT("[%s]"), *Section);
+		const FString KVLine = FString::Printf(TEXT("%s=%s"), *Key, *Value);
+
+		int32 SectionIdx = INDEX_NONE;
+		int32 SectionEnd = Lines.Num();
+		for (int32 i = 0; i < Lines.Num(); ++i)
+		{
+			if (Lines[i].TrimStartAndEnd() == SectionHeader)
+			{
+				SectionIdx = i;
+				SectionEnd = Lines.Num();
+				for (int32 j = i + 1; j < Lines.Num(); ++j)
+				{
+					FString T = Lines[j].TrimStartAndEnd();
+					if (T.StartsWith(TEXT("[")) && T.EndsWith(TEXT("]")))
+					{
+						SectionEnd = j;
+						break;
+					}
+				}
+				break;
+			}
+		}
+
+		if (SectionIdx == INDEX_NONE)
+		{
+			if (Lines.Num() > 0 && !Lines.Last().TrimStartAndEnd().IsEmpty())
+			{
+				Lines.Add(TEXT(""));
+			}
+			Lines.Add(SectionHeader);
+			Lines.Add(KVLine);
+			Lines.Add(TEXT(""));
+		}
+		else
+		{
+			bool bReplaced = false;
+			const FString KeyPrefix = FString::Printf(TEXT("%s="), *Key);
+			for (int32 i = SectionIdx + 1; i < SectionEnd; ++i)
+			{
+				if (Lines[i].StartsWith(KeyPrefix))
+				{
+					Lines[i] = KVLine;
+					bReplaced = true;
+					break;
+				}
+			}
+			if (!bReplaced)
+			{
+				int32 Insert = SectionEnd;
+				while (Insert > SectionIdx + 1 && Lines[Insert - 1].TrimStartAndEnd().IsEmpty()) Insert--;
+				Lines.Insert(KVLine, Insert);
+			}
+		}
+
+		FString Out = FString::Join(Lines, TEXT("\n"));
+		if (!Out.EndsWith(TEXT("\n"))) Out += TEXT("\n");
+		FFileHelper::SaveStringToFile(Out, *IniPath);
+		GConfig->LoadFile(IniPath);
+		bPersisted = true;
+	}
+
 	auto Result = MCPSuccess();
 	MCPSetUpdated(Result);
 	Result->SetStringField(TEXT("configFile"), ConfigName);
 	Result->SetStringField(TEXT("section"), Section);
 	Result->SetStringField(TEXT("key"), Key);
 	Result->SetStringField(TEXT("value"), Value);
+	Result->SetBoolField(TEXT("persisted"), bPersisted);
 
 	// Rollback: self-inverse with previous value (only if we had a previous value)
 	if (bHadPrev)
@@ -1659,4 +1757,44 @@ TSharedPtr<FJsonValue> FEditorHandlers::GenerateProjectFiles(const TSharedPtr<FJ
 		Result->SetStringField(TEXT("note"), TEXT("Project file generation launched. Check output log for progress."));
 		return MCPResult(Result);
 	}
+}
+
+// #126: Fast-forward PIE game time. Raises WorldSettings dilation caps and calls SetGlobalTimeDilation.
+TSharedPtr<FJsonValue> FEditorHandlers::SetPieTimeScale(const TSharedPtr<FJsonObject>& Params)
+{
+	double Factor = 1.0;
+	if (!Params->TryGetNumberField(TEXT("factor"), Factor))
+	{
+		return MCPError(TEXT("Missing 'factor' (number) parameter"));
+	}
+	if (Factor <= 0.0)
+	{
+		return MCPError(TEXT("'factor' must be > 0"));
+	}
+
+	UWorld* World = GetPIEWorld();
+	if (!World)
+	{
+		return MCPError(TEXT("No PIE/Game world active — start PIE first"));
+	}
+
+	AWorldSettings* WS = World->GetWorldSettings();
+	if (!WS)
+	{
+		return MCPError(TEXT("WorldSettings not available on PIE world"));
+	}
+
+	// Raise dilation caps so Factor isn't clamped.
+	const float CapHigh = FMath::Max(1000.0f, (float)Factor * 2.0f);
+	WS->MaxGlobalTimeDilation = FMath::Max(WS->MaxGlobalTimeDilation, CapHigh);
+	WS->MinGlobalTimeDilation = FMath::Min(WS->MinGlobalTimeDilation, 0.0001f);
+
+	UGameplayStatics::SetGlobalTimeDilation(World, (float)Factor);
+
+	auto Result = MCPSuccess();
+	Result->SetNumberField(TEXT("factor"), Factor);
+	Result->SetNumberField(TEXT("maxCap"), WS->MaxGlobalTimeDilation);
+	Result->SetNumberField(TEXT("minCap"), WS->MinGlobalTimeDilation);
+	Result->SetStringField(TEXT("world"), World->GetName());
+	return MCPResult(Result);
 }

@@ -21,6 +21,7 @@ private:
 	static TSharedPtr<FJsonValue> MoveAsset(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> DeleteAsset(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> DeleteAssetBatch(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> BulkRename(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> CreateDataAsset(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> SaveAsset(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> ListTextures(const TSharedPtr<FJsonObject>& Params);
