@@ -287,6 +287,22 @@ If step 3 fails: the `delete_actor` inverses for B and A run, leaving the level 
 
 Conventions for handlers — natural keys, the `onConflict: skip|update|error` option, and rollback record shape — live in [docs/handler-conventions.md](handler-conventions.md).
 
+## Git Snapshot Safety Net
+
+Per-handler rollback covers in-memory state (selection, PIE, unsaved actors). For anything that touched disk (new `.uasset` files, modified `.ini` config, deleted packages), enable the opt-in git snapshot. On flow start the runner snapshots `Content/` and `Config/` into a shadow bare git repo, and on failure runs `git read-tree --reset -u` to restore, then asks the editor to reload affected packages.
+
+Enable it in `ue-mcp.yml`:
+
+```yaml
+git_snapshot:
+  enabled: true
+  paths: [Content, Config]          # defaults shown
+  snapshot_dir: .ue-mcp/snapshot.git # relative to project root
+  max_age_hours: 24                  # prune older snapshot refs on each run
+```
+
+The shadow repo is completely separate from any project-level git — your real history isn't touched. Snapshot failure doesn't fail the flow; handler-level rollbacks still apply. Restore outcomes surface in `result.snapshotRestore`.
+
 ## `agent_prompt` — LLM-backed steps
 
 When `ANTHROPIC_API_KEY` is set, the `agent_prompt` task is available. It calls Claude and returns the response as the step's data:

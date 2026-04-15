@@ -11,6 +11,13 @@ import type { FlowContext } from "./context.js";
 import type { FlowConfig } from "./schema.js";
 import type { ToolDef, ToolContext } from "../types.js";
 import { AnthropicProvider } from "./anthropic-provider.js";
+import {
+  takeSnapshot,
+  restoreSnapshot,
+  reloadAffectedPackages,
+  pruneOldSnapshots,
+  type Snapshot,
+} from "./git-snapshot.js";
 
 // Lazy-init the LLM provider so the server still starts without an API key.
 let llmProvider: LLMProvider | undefined;
@@ -117,11 +124,62 @@ function makeRunner(registry: TaskRegistry, config: FlowConfig, ctx: ToolContext
     llm: getLLMProvider(),
   };
 
+  // Opt-in git snapshot: capture Content/ + Config/ on start; reset on failure.
+  // Handler-level rollbacks cover in-memory state (selection, PIE, unsaved
+  // actors); the snapshot covers anything that touched disk.
+  const snapCfg = config.git_snapshot;
+  let activeSnapshot: Snapshot | undefined;
+  let flowFailed = false;
+
+  const hooks = (snapCfg?.enabled && ctx.project.projectDir)
+    ? {
+        beforeRun: async () => {
+          const projectDir = ctx.project.projectDir!;
+          const snapshotDir = snapCfg.snapshot_dir ?? ".ue-mcp/snapshot.git";
+          const absSnap = snapshotDir.startsWith(".") || !snapshotDir.match(/^([a-zA-Z]:|\/)/)
+            ? `${projectDir}/${snapshotDir}`
+            : snapshotDir;
+          pruneOldSnapshots(absSnap, (snapCfg.max_age_hours ?? 24) * 3_600_000);
+          try {
+            activeSnapshot = takeSnapshot(
+              projectDir,
+              snapCfg.paths ?? ["Content", "Config"],
+              snapshotDir,
+            );
+          } catch (e) {
+            // Don't fail the flow on snapshot failure — just log. Handler
+            // rollbacks still apply.
+            console.error(`[ue-mcp] git snapshot failed: ${(e as Error).message}`);
+          }
+        },
+        afterRun: async (result: FlowRunResult) => {
+          flowFailed = !result.success;
+          if (!activeSnapshot || !flowFailed) return;
+          try {
+            const { changedPaths } = restoreSnapshot(activeSnapshot);
+            if (ctx.bridge.isConnected) {
+              await reloadAffectedPackages(ctx.bridge, activeSnapshot.projectDir, changedPaths);
+            }
+            (result as unknown as { snapshotRestore?: unknown }).snapshotRestore = {
+              restored: true,
+              changedCount: changedPaths.length,
+            };
+          } catch (e) {
+            (result as unknown as { snapshotRestore?: unknown }).snapshotRestore = {
+              restored: false,
+              error: (e as Error).message,
+            };
+          }
+        },
+      }
+    : undefined;
+
   return new FlowRunner({
     tasks: config.tasks as Record<string, TaskDefinition>,
     flows: config.flows as Record<string, FlowDefinition>,
     registry,
     context: flowCtx,
+    hooks,
   });
 }
 
@@ -165,6 +223,16 @@ function formatFlowResult(result: FlowRunResult): Record<string, unknown> {
     );
     for (const e of result.rollback.errors) {
       lines.push(`      ✗ ${e.taskName}: ${e.error.message}`);
+    }
+  }
+
+  const snap = (result as unknown as { snapshotRestore?: { restored: boolean; changedCount?: number; error?: string } }).snapshotRestore;
+  if (snap) {
+    lines.push("");
+    if (snap.restored) {
+      lines.push(`  Git snapshot restored: ${snap.changedCount} files reset`);
+    } else {
+      lines.push(`  Git snapshot restore FAILED: ${snap.error}`);
     }
   }
 
