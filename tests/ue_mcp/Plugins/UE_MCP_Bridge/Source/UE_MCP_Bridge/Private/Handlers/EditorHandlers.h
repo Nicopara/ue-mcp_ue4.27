@@ -113,6 +113,8 @@ private:
 	// Handler implementations
 	static TSharedPtr<FJsonValue> ExecuteCommand(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> ExecutePython(const TSharedPtr<FJsonObject>& Params);
+	// #142: run a Python file with __file__/__name__ context populated
+	static TSharedPtr<FJsonValue> RunPythonFile(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> SetProperty(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> SetConfig(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> ReadConfig(const TSharedPtr<FJsonObject>& Params);

@@ -66,6 +66,7 @@ export const editorTool: ToolDef = categoryTool(
         );
       },
     },
+    run_python_file: bp("Run a Python file from disk with __file__/__name__ populated (#142). Params: filePath, args?", "run_python_file", (p) => ({ filePath: p.filePath, args: p.args })),
     set_property: bp("Set UObject property. Params: objectPath, propertyName, value", "set_property"),
     play_in_editor: bp("PIE control. Params: pieAction (start|stop|status)", "pie_control", (p) => ({ action: p.pieAction ?? "status" })),
     get_runtime_value: bp("Read PIE actor value. Params: actorLabel, propertyName", "get_runtime_value"),
@@ -108,6 +109,8 @@ export const editorTool: ToolDef = categoryTool(
   {
     command: z.string().optional(),
     code: z.string().optional(),
+    filePath: z.string().optional().describe("Absolute path to a .py file for run_python_file"),
+    args: z.array(z.string()).optional().describe("Positional args appended to the script for run_python_file"),
     objectPath: z.string().optional(),
     propertyName: z.string().optional(),
     value: z.unknown().optional(),

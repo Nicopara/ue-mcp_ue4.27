@@ -50,6 +50,7 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 
 	Registry.RegisterHandler(TEXT("execute_command"), &ExecuteCommand);
 	Registry.RegisterHandler(TEXT("execute_python"), &ExecutePython);
+	Registry.RegisterHandler(TEXT("run_python_file"), &RunPythonFile);
 	Registry.RegisterHandler(TEXT("set_property"), &SetProperty);
 	Registry.RegisterHandler(TEXT("set_config"), &SetConfig);
 	Registry.RegisterHandler(TEXT("read_config"), &ReadConfig);
@@ -149,6 +150,71 @@ TSharedPtr<FJsonValue> FEditorHandlers::ExecutePython(const TSharedPtr<FJsonObje
 		if (!CombinedOutput.IsEmpty()) CombinedOutput += TEXT("\n");
 		CombinedOutput += Entry.Output;
 	}
+	Result->SetStringField(TEXT("output"), CombinedOutput);
+
+	return MCPResult(Result);
+}
+
+// #142 — Run a Python script file on disk with __file__/__name__ context populated.
+// Mirrors the execute_python return shape. Use this instead of execute_python
+// when you want to invoke a checked-in .py file without wrapping it in `exec()`.
+TSharedPtr<FJsonValue> FEditorHandlers::RunPythonFile(const TSharedPtr<FJsonObject>& Params)
+{
+	FString FilePath;
+	if (auto Err = RequireStringAlt(Params, TEXT("path"), TEXT("filePath"), FilePath)) return Err;
+
+	// Accept forward-slashes on Windows; FPlatformFileManager normalises them.
+	if (!FPaths::FileExists(FilePath))
+	{
+		return MCPError(FString::Printf(TEXT("Python file not found: %s"), *FilePath));
+	}
+
+	IPythonScriptPlugin* PythonPlugin = IPythonScriptPlugin::Get();
+	if (!PythonPlugin || !PythonPlugin->IsPythonAvailable())
+	{
+		return MCPError(TEXT("Python scripting is not available"));
+	}
+
+	// Optional positional args to expose as sys.argv[1:].
+	TArray<FString> ExtraArgs;
+	const TArray<TSharedPtr<FJsonValue>>* ArgsArr = nullptr;
+	if (Params->TryGetArrayField(TEXT("args"), ArgsArr) && ArgsArr)
+	{
+		for (const TSharedPtr<FJsonValue>& V : *ArgsArr)
+		{
+			FString S;
+			if (V.IsValid() && V->TryGetString(S)) ExtraArgs.Add(S);
+		}
+	}
+
+	FPythonCommandEx PythonCommand;
+	PythonCommand.Command = FilePath;
+	PythonCommand.ExecutionMode = EPythonCommandExecutionMode::ExecuteFile;
+	PythonCommand.FileExecutionScope = EPythonFileExecutionScope::Public;
+	for (const FString& A : ExtraArgs)
+	{
+		PythonCommand.Command += TEXT(" ") + A;
+	}
+
+	bool bSuccess = PythonPlugin->ExecPythonCommandEx(PythonCommand);
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetBoolField(TEXT("success"), bSuccess);
+	Result->SetStringField(TEXT("path"), FilePath);
+	Result->SetStringField(TEXT("result"), PythonCommand.CommandResult);
+
+	TArray<TSharedPtr<FJsonValue>> LogArray;
+	FString CombinedOutput;
+	for (const FPythonLogOutputEntry& Entry : PythonCommand.LogOutput)
+	{
+		TSharedPtr<FJsonObject> LogEntry = MakeShared<FJsonObject>();
+		LogEntry->SetStringField(TEXT("type"), LexToString(Entry.Type));
+		LogEntry->SetStringField(TEXT("output"), Entry.Output);
+		LogArray.Add(MakeShared<FJsonValueObject>(LogEntry));
+		if (!CombinedOutput.IsEmpty()) CombinedOutput += TEXT("\n");
+		CombinedOutput += Entry.Output;
+	}
+	Result->SetArrayField(TEXT("log_output"), LogArray);
 	Result->SetStringField(TEXT("output"), CombinedOutput);
 
 	return MCPResult(Result);
