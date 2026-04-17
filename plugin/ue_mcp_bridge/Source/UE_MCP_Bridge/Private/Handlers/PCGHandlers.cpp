@@ -44,6 +44,10 @@ void FPCGHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("read_pcg_node_settings"), &ReadPCGNodeSettings);
 	Registry.RegisterHandler(TEXT("get_pcg_component_details"), &GetPCGComponentDetails);
 	Registry.RegisterHandler(TEXT("set_static_mesh_spawner_meshes"), &SetStaticMeshSpawnerMeshes);
+	// #146: force_regenerate / cleanup / toggle_graph on PCG components
+	Registry.RegisterHandler(TEXT("force_regenerate_pcg"), &ForceRegeneratePCG);
+	Registry.RegisterHandler(TEXT("cleanup_pcg"), &CleanupPCG);
+	Registry.RegisterHandler(TEXT("toggle_pcg_graph"), &ToggleGraphPCG);
 }
 
 TSharedPtr<FJsonValue> FPCGHandlers::ListPCGGraphs(const TSharedPtr<FJsonObject>& Params)
@@ -1017,5 +1021,123 @@ TSharedPtr<FJsonValue> FPCGHandlers::SetStaticMeshSpawnerMeshes(const TSharedPtr
 	Result->SetNumberField(TEXT("entriesAdded"), Added);
 	Result->SetNumberField(TEXT("totalEntries"), WeightedSelector->MeshEntries.Num());
 	Result->SetBoolField(TEXT("replaced"), bReplace);
+	return MCPResult(Result);
+}
+
+namespace
+{
+	// Locate a UPCGComponent by actor label. Returns error JsonValue on failure.
+	TSharedPtr<FJsonValue> FindPCGComponentByLabel(const FString& ActorLabel, UPCGComponent*& OutComp, AActor*& OutActor)
+	{
+		OutComp = nullptr;
+		OutActor = nullptr;
+
+		UWorld* World = nullptr;
+		if (GEditor && GEditor->GetEditorWorldContext().World())
+		{
+			World = GEditor->GetEditorWorldContext().World();
+		}
+		if (!World) return MCPError(TEXT("Editor world not available"));
+
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			AActor* A = *It;
+			if (A && A->GetActorLabel() == ActorLabel)
+			{
+				OutActor = A;
+				OutComp = A->FindComponentByClass<UPCGComponent>();
+				break;
+			}
+		}
+		if (!OutActor) return MCPError(FString::Printf(TEXT("Actor not found with label: %s"), *ActorLabel));
+		if (!OutComp) return MCPError(FString::Printf(TEXT("No PCGComponent on actor: %s"), *ActorLabel));
+		return nullptr;
+	}
+}
+
+// ─── #146 force_regenerate / cleanup / toggle_graph ──────────────────
+// The set-graph-to-null + re-set workaround is the only reliable way to
+// unstick a PCG component whose graph state desynced from the executor
+// (common after editor restart or graph edits). The feedback log showed
+// this pattern worked consistently; raw Generate(true) alone did not.
+TSharedPtr<FJsonValue> FPCGHandlers::ForceRegeneratePCG(const TSharedPtr<FJsonObject>& Params)
+{
+	FString ActorLabel;
+	if (auto Err = RequireString(Params, TEXT("actorLabel"), ActorLabel)) return Err;
+
+	UPCGComponent* PCGComp = nullptr; AActor* Actor = nullptr;
+	if (auto Err = FindPCGComponentByLabel(ActorLabel, PCGComp, Actor)) return Err;
+
+	UPCGGraph* OriginalGraph = PCGComp->GetGraph();
+	if (!OriginalGraph)
+	{
+		return MCPError(FString::Printf(TEXT("PCGComponent on '%s' has no graph assigned"), *ActorLabel));
+	}
+
+	// Full reset: clear → re-assign → cleanup → generate.
+	PCGComp->SetGraph(nullptr);
+	PCGComp->SetGraph(OriginalGraph);
+	PCGComp->Cleanup(/*bRemoveComponents*/ true, /*bSave*/ false);
+	PCGComp->Generate(/*bForce*/ true);
+
+	auto Result = MCPSuccess();
+	Result->SetStringField(TEXT("actorLabel"), ActorLabel);
+	Result->SetStringField(TEXT("componentName"), PCGComp->GetName());
+	Result->SetStringField(TEXT("graphName"), OriginalGraph->GetName());
+	Result->SetStringField(TEXT("graphPath"), OriginalGraph->GetPathName());
+	Result->SetBoolField(TEXT("regenerated"), true);
+	return MCPResult(Result);
+}
+
+TSharedPtr<FJsonValue> FPCGHandlers::CleanupPCG(const TSharedPtr<FJsonObject>& Params)
+{
+	FString ActorLabel;
+	if (auto Err = RequireString(Params, TEXT("actorLabel"), ActorLabel)) return Err;
+
+	UPCGComponent* PCGComp = nullptr; AActor* Actor = nullptr;
+	if (auto Err = FindPCGComponentByLabel(ActorLabel, PCGComp, Actor)) return Err;
+
+	const bool bRemoveComponents = OptionalBool(Params, TEXT("removeComponents"), true);
+	PCGComp->Cleanup(bRemoveComponents, /*bSave*/ false);
+
+	auto Result = MCPSuccess();
+	Result->SetStringField(TEXT("actorLabel"), ActorLabel);
+	Result->SetStringField(TEXT("componentName"), PCGComp->GetName());
+	Result->SetBoolField(TEXT("removeComponents"), bRemoveComponents);
+	Result->SetBoolField(TEXT("cleaned"), true);
+	return MCPResult(Result);
+}
+
+TSharedPtr<FJsonValue> FPCGHandlers::ToggleGraphPCG(const TSharedPtr<FJsonObject>& Params)
+{
+	FString ActorLabel;
+	if (auto Err = RequireString(Params, TEXT("actorLabel"), ActorLabel)) return Err;
+
+	UPCGComponent* PCGComp = nullptr; AActor* Actor = nullptr;
+	if (auto Err = FindPCGComponentByLabel(ActorLabel, PCGComp, Actor)) return Err;
+
+	// If the caller supplies graphPath, load and use that; otherwise re-apply the current graph.
+	FString GraphPath;
+	UPCGGraph* TargetGraph = nullptr;
+	if (Params->TryGetStringField(TEXT("graphPath"), GraphPath) && !GraphPath.IsEmpty())
+	{
+		TargetGraph = LoadObject<UPCGGraph>(nullptr, *GraphPath);
+		if (!TargetGraph) return MCPError(FString::Printf(TEXT("PCGGraph not found: %s"), *GraphPath));
+	}
+	else
+	{
+		TargetGraph = PCGComp->GetGraph();
+		if (!TargetGraph) return MCPError(FString::Printf(TEXT("No graph on '%s' and no graphPath provided"), *ActorLabel));
+	}
+
+	PCGComp->SetGraph(nullptr);
+	PCGComp->SetGraph(TargetGraph);
+
+	auto Result = MCPSuccess();
+	Result->SetStringField(TEXT("actorLabel"), ActorLabel);
+	Result->SetStringField(TEXT("componentName"), PCGComp->GetName());
+	Result->SetStringField(TEXT("graphName"), TargetGraph->GetName());
+	Result->SetStringField(TEXT("graphPath"), TargetGraph->GetPathName());
+	Result->SetBoolField(TEXT("toggled"), true);
 	return MCPResult(Result);
 }

@@ -18,6 +18,9 @@ export const pcgTool: ToolDef = categoryTool(
     set_static_mesh_spawner_meshes: bp("Populate weighted MeshEntries on a PCGStaticMeshSpawner node (#145). Params: assetPath, nodeName, entries=[{mesh, weight?}], replace? (default true)", "set_static_mesh_spawner_meshes", (p) => ({ assetPath: p.assetPath, nodeName: p.nodeName, entries: p.entries, replace: p.replace })),
     remove_node:          bp("Remove node. Params: assetPath, nodeName", "remove_pcg_node"),
     execute:              bp("Regenerate PCG. Params: actorLabel", "execute_pcg_graph"),
+    force_regenerate:     bp("Force a stuck PCG component to regenerate (clears graph ref, re-sets, cleanup+generate). Params: actorLabel (#146)", "force_regenerate_pcg"),
+    cleanup:              bp("Cleanup a PCG component (remove spawned content). Params: actorLabel, removeComponents? (default true) (#146)", "cleanup_pcg", (p) => ({ actorLabel: p.actorLabel, removeComponents: p.removeComponents })),
+    toggle_graph:         bp("Toggle a PCG component's graph assignment to force reinit (no generate). Params: actorLabel, graphPath? (#146)", "toggle_pcg_graph", (p) => ({ actorLabel: p.actorLabel, graphPath: p.graphPath })),
     add_volume:           bp("Place PCG volume. Params: graphPath, location?, extent?", "add_pcg_volume"),
   },
   undefined,
@@ -34,5 +37,6 @@ export const pcgTool: ToolDef = categoryTool(
     graphPath: z.string().optional(),
     location: Vec3.optional(),
     extent: Vec3.optional(),
+    removeComponents: z.boolean().optional().describe("cleanup: remove managed spawned components (default true)"),
   },
 );

@@ -37,4 +37,6 @@ private:
 	// #94: Fog + sky helpers
 	static TSharedPtr<FJsonValue> SetFogProperties(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> GetActorsByClass(const TSharedPtr<FJsonObject>& Params);
+	// v0.7.19 issue #146 — actor class histogram (counts by class name)
+	static TSharedPtr<FJsonValue> CountActorsByClass(const TSharedPtr<FJsonObject>& Params);
 };

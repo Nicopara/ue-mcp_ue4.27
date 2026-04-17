@@ -73,6 +73,7 @@ void FLevelHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("set_world_settings"), &SetWorldSettings);
 	Registry.RegisterHandler(TEXT("set_fog_properties"), &SetFogProperties);
 	Registry.RegisterHandler(TEXT("get_actors_by_class"), &GetActorsByClass);
+	Registry.RegisterHandler(TEXT("count_actors_by_class"), &CountActorsByClass);
 }
 
 TSharedPtr<FJsonValue> FLevelHandlers::GetOutliner(const TSharedPtr<FJsonObject>& Params)
@@ -1761,5 +1762,54 @@ TSharedPtr<FJsonValue> FLevelHandlers::GetActorsByClass(const TSharedPtr<FJsonOb
 	auto Result = MCPSuccess();
 	Result->SetArrayField(TEXT("actors"), Out);
 	Result->SetNumberField(TEXT("count"), Out.Num());
+	return MCPResult(Result);
+}
+
+// #146: histogram of actors by class name. Cheaper than get_outliner when
+// the caller only needs counts (e.g. "how many PCGVolume are loaded?").
+TSharedPtr<FJsonValue> FLevelHandlers::CountActorsByClass(const TSharedPtr<FJsonObject>& Params)
+{
+	FString WorldScope = OptionalString(Params, TEXT("world"), TEXT("editor"));
+	UWorld* World = ResolveWorldScope(WorldScope);
+	if (!World) return MCPError(TEXT("World not available"));
+
+	const int32 TopN = OptionalInt(Params, TEXT("topN"), 0);
+
+	TMap<FString, int32> Counts;
+	int32 Total = 0;
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* A = *It;
+		if (!A) continue;
+		const FString CName = A->GetClass()->GetName();
+		int32& Ref = Counts.FindOrAdd(CName);
+		Ref++;
+		Total++;
+	}
+
+	// Sort by count desc
+	TArray<TPair<FString, int32>> Sorted;
+	Sorted.Reserve(Counts.Num());
+	for (const auto& Pair : Counts) { Sorted.Emplace(Pair.Key, Pair.Value); }
+	Sorted.Sort([](const TPair<FString, int32>& A, const TPair<FString, int32>& B) { return A.Value > B.Value; });
+
+	if (TopN > 0 && Sorted.Num() > TopN)
+	{
+		Sorted.SetNum(TopN);
+	}
+
+	TArray<TSharedPtr<FJsonValue>> Out;
+	for (const auto& Pair : Sorted)
+	{
+		TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+		Entry->SetStringField(TEXT("class"), Pair.Key);
+		Entry->SetNumberField(TEXT("count"), Pair.Value);
+		Out.Add(MakeShared<FJsonValueObject>(Entry));
+	}
+
+	auto Result = MCPSuccess();
+	Result->SetArrayField(TEXT("classes"), Out);
+	Result->SetNumberField(TEXT("uniqueClasses"), Counts.Num());
+	Result->SetNumberField(TEXT("totalActors"), Total);
 	return MCPResult(Result);
 }
