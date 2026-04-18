@@ -96,4 +96,9 @@ Issues and pull requests welcome. If an AI agent had to fall back to `execute_py
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+UE-MCP is licensed under the **Business Source License 1.1** with a **commercial license** available for production use outside the Additional Use Grant.
+
+- **Individuals, students, and educational institutions** use UE-MCP free under BUSL-1.1's Additional Use Grant. Each release converts to Apache 2.0 after four years. See [LICENSE](LICENSE).
+- **Game studios, publishers, contract developers, and commercial entities** using UE-MCP in proprietary products, internal pipelines, or paid services require a commercial license. See [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md) and [ue-mcp.com/pricing](https://ue-mcp.com/pricing).
+
+Contributions are accepted under the terms of the Contributor License Agreement. See [CLA.md](CLA.md).
