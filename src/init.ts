@@ -596,7 +596,7 @@ async function init() {
       "  version: 1",
       "",
       "# Custom tasks — pre-fill options for built-in actions",
-      "# All 300+ built-in actions are available without listing them here.",
+      "# All 425+ built-in actions are available without listing them here.",
       "#",
       "# tasks:",
       "#   import_hero:",

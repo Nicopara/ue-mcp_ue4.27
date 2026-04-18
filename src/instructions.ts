@@ -1,4 +1,4 @@
-export const SERVER_INSTRUCTIONS = `UE-MCP: Unreal Engine editor bridge (C++ plugin) — 19 category tools covering 300+ actions.
+export const SERVER_INSTRUCTIONS = `UE-MCP: Unreal Engine editor bridge (C++ plugin) — 19 category tools covering 425+ actions.
 
 Every tool takes an "action" parameter that selects the operation. Call project(action="get_status") first.
 
