@@ -1,16 +1,14 @@
 import { z } from "zod";
-import { FlowRunner, AgentPromptTask } from "@db-lyon/flowkit";
+import { FlowRunner } from "@db-lyon/flowkit";
 import type {
   TaskRegistry,
   FlowRunResult,
   TaskDefinition,
   FlowDefinition,
-  LLMProvider,
 } from "@db-lyon/flowkit";
 import type { FlowContext } from "./context.js";
 import type { FlowConfig } from "./schema.js";
 import type { ToolDef, ToolContext } from "../types.js";
-import { AnthropicProvider } from "./anthropic-provider.js";
 import {
   takeSnapshot,
   restoreSnapshot,
@@ -19,30 +17,10 @@ import {
   type Snapshot,
 } from "./git-snapshot.js";
 
-// Lazy-init the LLM provider so the server still starts without an API key.
-let llmProvider: LLMProvider | undefined;
-let llmProviderInitAttempted = false;
-function getLLMProvider(): LLMProvider | undefined {
-  if (llmProviderInitAttempted) return llmProvider;
-  llmProviderInitAttempted = true;
-  try {
-    llmProvider = new AnthropicProvider();
-  } catch {
-    // No API key — agent_prompt steps will fail clearly when invoked.
-  }
-  return llmProvider;
-}
-
 export function createFlowTool(
   registry: TaskRegistry,
   reloadConfig: () => FlowConfig,
 ): ToolDef {
-  // Ensure agent_prompt is registered on the shared registry.
-  registry.registerClassPath(
-    "flow.agent_prompt",
-    AgentPromptTask as unknown as Parameters<typeof registry.registerClassPath>[1],
-  );
-
   return {
     name: "flow",
     description:
@@ -125,7 +103,6 @@ function makeRunner(registry: TaskRegistry, config: FlowConfig, ctx: ToolContext
   const flowCtx: FlowContext = {
     bridge: ctx.bridge,
     project: ctx.project,
-    llm: getLLMProvider(),
   };
 
   // Opt-in git snapshot: capture Content/ + Config/ on start; reset on failure.

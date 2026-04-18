@@ -239,7 +239,7 @@ flows:
     description: Build and push the plugin
     on_start:   [ { task: editor.execute_console, options: { command: "echo starting" } } ]
     on_success: [ { task: editor.execute_console, options: { command: "echo done ${steps.build.version}" } } ]
-    on_failure: [ { task: agent_prompt, options: { prompt: "Triage: ${error.message}" } } ]
+    on_failure: [ { task: editor.execute_console, options: { command: "echo failed: ${error.message}" } } ]
     finally:    [ { task: project.get_status } ]
     steps:
       1: { task: project.build }
@@ -302,35 +302,6 @@ git_snapshot:
 ```
 
 The shadow repo is completely separate from any project-level git — your real history isn't touched. Snapshot failure doesn't fail the flow; handler-level rollbacks still apply. Restore outcomes surface in `result.snapshotRestore`.
-
-## `agent_prompt` — LLM-backed steps
-
-When `ANTHROPIC_API_KEY` is set, the `agent_prompt` task is available. It calls Claude and returns the response as the step's data:
-
-```yaml
-steps:
-  1:
-    task: agent_prompt
-    options:
-      system: "You triage UE flow failures."
-      prompt: "Last error: ${error.message}. Suggest a one-line fix."
-      model: claude-opus-4-6
-      maxTokens: 512
-      schema: { type: object, properties: { fix: { type: string } } }  # optional — parses JSON response
-```
-
-Returns `{ text, parsed?, usage }`. `parsed` is populated when a `schema` is provided and the model's output is valid JSON.
-
-Pairs naturally with `on_failure` for auto-triage:
-
-```yaml
-on_failure:
-  - task: agent_prompt
-    options:
-      prompt: "Flow ${error.step} failed with: ${error.message}. What should the user change?"
-```
-
-Skip this section if you're not using the MCP server's Anthropic-backed provider. Swap in your own by attaching a `LLMProvider` to the flow context.
 
 ## Skipping Steps
 
