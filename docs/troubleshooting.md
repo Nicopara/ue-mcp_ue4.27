@@ -40,12 +40,11 @@ The C++ bridge links against many UE modules. If compilation fails:
 
 1. **Missing plugins.** Ensure these are enabled in your `.uproject`:
     - `PythonScriptPlugin`
-    - `EnhancedInput`
     - `GameplayAbilities`
     - `Niagara`
-    - `PCG`
+    - `ControlRig` (if using rig-related handlers)
 
-2. **UE version mismatch.** The plugin is tested with UE 5.4–5.7. Older versions may have API differences. Check the build log for specific errors.
+2. **UE version mismatch.** This branch targets UE 4.27. Check the build log for missing module or API errors if a UE5-only feature path is still enabled.
 
 3. **Rebuild from clean.** Delete `<Project>/Plugins/UE_MCP_Bridge/Binaries/` and `<Project>/Plugins/UE_MCP_Bridge/Intermediate/`, then rebuild.
 

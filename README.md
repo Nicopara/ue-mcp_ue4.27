@@ -85,8 +85,8 @@ If you prefer to configure manually, add to your MCP client config:
 
 ## Supported Platforms
 
-- **Windows** — UE 5.4–5.7
-- **Linux** — UE 5.6+ (contributed by [@robinduckett](https://github.com/robinduckett))
+- **Windows** — UE 4.27
+- **Linux** — UE 4.27 (if your UE4 editor build is available on Linux)
 
 Requires `PythonScriptPlugin` (ships with UE 4.26+).
 

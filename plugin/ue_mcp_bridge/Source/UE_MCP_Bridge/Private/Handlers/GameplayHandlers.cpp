@@ -9,7 +9,6 @@
 #include "UObject/Package.h"
 #include "Misc/PackageName.h"
 #include "UObject/SavePackage.h"
-#include "UObject/TopLevelAssetPath.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "Engine/World.h"
@@ -47,11 +46,17 @@
 #include "Perception/AISenseConfig_Sight.h"
 #include "Perception/AISenseConfig_Hearing.h"
 #include "Perception/AISenseConfig_Damage.h"
+#if __has_include("EnhancedInputComponent.h")
 #include "EnhancedInputComponent.h"
 #include "InputAction.h"
 #include "InputMappingContext.h"
 #include "InputModifiers.h"
 #include "InputTriggers.h"
+#include "EnhancedActionKeyMapping.h"
+#define UE_MCP_HAS_ENHANCED_INPUT 1
+#else
+#define UE_MCP_HAS_ENHANCED_INPUT 0
+#endif
 #include "BehaviorTree/BehaviorTree.h"
 #include "BehaviorTree/BTCompositeNode.h"
 #include "BehaviorTree/BTTaskNode.h"
@@ -68,7 +73,6 @@
 #include "EnvironmentQuery/EnvQuery.h"
 #include "EnvironmentQuery/EnvQueryManager.h"
 #include "EnvironmentQuery/EnvQueryInstanceBlueprintWrapper.h"
-#include "EnhancedActionKeyMapping.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
@@ -382,6 +386,7 @@ TSharedPtr<FJsonValue> FGameplayHandlers::ProjectPointToNavigation(const TShared
 
 TSharedPtr<FJsonValue> FGameplayHandlers::CreateInputAction(const TSharedPtr<FJsonObject>& Params)
 {
+#if UE_MCP_HAS_ENHANCED_INPUT
 	FString Name;
 	if (auto Err = RequireString(Params, TEXT("name"), Name)) return Err;
 
@@ -455,10 +460,14 @@ TSharedPtr<FJsonValue> FGameplayHandlers::CreateInputAction(const TSharedPtr<FJs
 	MCPSetDeleteAssetRollback(Result, NewAsset->GetPathName());
 
 	return MCPResult(Result);
+#else
+	return MCPError(TEXT("EnhancedInput is not available in UE 4.27."));
+#endif
 }
 
 TSharedPtr<FJsonValue> FGameplayHandlers::CreateInputMappingContext(const TSharedPtr<FJsonObject>& Params)
 {
+#if UE_MCP_HAS_ENHANCED_INPUT
 	FString Name;
 	if (auto Err = RequireString(Params, TEXT("name"), Name)) return Err;
 
@@ -494,6 +503,9 @@ TSharedPtr<FJsonValue> FGameplayHandlers::CreateInputMappingContext(const TShare
 	MCPSetDeleteAssetRollback(Result, NewAsset->GetPathName());
 
 	return MCPResult(Result);
+#else
+	return MCPError(TEXT("EnhancedInput is not available in UE 4.27."));
+#endif
 }
 
 TSharedPtr<FJsonValue> FGameplayHandlers::CreateBlackboard(const TSharedPtr<FJsonObject>& Params)
@@ -1488,6 +1500,7 @@ TSharedPtr<FJsonValue> FGameplayHandlers::AddBlackboardKey(const TSharedPtr<FJso
 
 TSharedPtr<FJsonValue> FGameplayHandlers::SetupEnhancedInput(const TSharedPtr<FJsonObject>& Params)
 {
+#if UE_MCP_HAS_ENHANCED_INPUT
 	FString ActorLabel;
 	if (auto Err = RequireString(Params, TEXT("actorLabel"), ActorLabel)) return Err;
 
@@ -1561,6 +1574,9 @@ TSharedPtr<FJsonValue> FGameplayHandlers::SetupEnhancedInput(const TSharedPtr<FJ
 	Result->SetArrayField(TEXT("boundActions"), BoundActions);
 
 	return MCPResult(Result);
+#else
+	return MCPError(TEXT("EnhancedInput is not available in UE 4.27."));
+#endif
 }
 
 TSharedPtr<FJsonValue> FGameplayHandlers::ConfigureBehaviorTree(const TSharedPtr<FJsonObject>& Params)
@@ -2111,6 +2127,7 @@ TSharedPtr<FJsonValue> FGameplayHandlers::AddSmartObjectComponent(const TSharedP
 // ─────────────────────────────────────────────────────────────
 TSharedPtr<FJsonValue> FGameplayHandlers::ReadImc(const TSharedPtr<FJsonObject>& Params)
 {
+#if UE_MCP_HAS_ENHANCED_INPUT
 	FString ImcPath;
 	if (auto Err = RequireString(Params, TEXT("imcPath"), ImcPath)) return Err;
 
@@ -2162,6 +2179,9 @@ TSharedPtr<FJsonValue> FGameplayHandlers::ReadImc(const TSharedPtr<FJsonObject>&
 	Result->SetNumberField(TEXT("count"), MappingsArr.Num());
 
 	return MCPResult(Result);
+#else
+	return MCPError(TEXT("EnhancedInput is not available in UE 4.27."));
+#endif
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -2169,6 +2189,7 @@ TSharedPtr<FJsonValue> FGameplayHandlers::ReadImc(const TSharedPtr<FJsonObject>&
 // ─────────────────────────────────────────────────────────────
 TSharedPtr<FJsonValue> FGameplayHandlers::AddImcMapping(const TSharedPtr<FJsonObject>& Params)
 {
+#if UE_MCP_HAS_ENHANCED_INPUT
 	FString ImcPath;
 	if (auto Err = RequireString(Params, TEXT("imcPath"), ImcPath)) return Err;
 
@@ -2236,6 +2257,9 @@ TSharedPtr<FJsonValue> FGameplayHandlers::AddImcMapping(const TSharedPtr<FJsonOb
 	// No rollback: no paired remove_imc_mapping handler.
 
 	return MCPResult(Result);
+#else
+	return MCPError(TEXT("EnhancedInput is not available in UE 4.27."));
+#endif
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -2244,6 +2268,7 @@ TSharedPtr<FJsonValue> FGameplayHandlers::AddImcMapping(const TSharedPtr<FJsonOb
 // ─────────────────────────────────────────────────────────────
 TSharedPtr<FJsonValue> FGameplayHandlers::SetMappingModifiers(const TSharedPtr<FJsonObject>& Params)
 {
+#if UE_MCP_HAS_ENHANCED_INPUT
 	FString ImcPath;
 	if (auto Err = RequireString(Params, TEXT("imcPath"), ImcPath)) return Err;
 
@@ -2438,6 +2463,9 @@ TSharedPtr<FJsonValue> FGameplayHandlers::SetMappingModifiers(const TSharedPtr<F
 	Result->SetNumberField(TEXT("modifierCount"), Mapping.Modifiers.Num());
 	Result->SetNumberField(TEXT("triggerCount"), Mapping.Triggers.Num());
 	return MCPResult(Result);
+#else
+	return MCPError(TEXT("EnhancedInput is not available in UE 4.27."));
+#endif
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -2550,9 +2578,13 @@ TSharedPtr<FJsonValue> FGameplayHandlers::InspectPie(const TSharedPtr<FJsonObjec
 	}
 	Result->SetArrayField(TEXT("components"), CompsArr);
 
-	// Input bindings — check for EnhancedInputComponent
+	// Input bindings — check for EnhancedInputComponent if available
+#if UE_MCP_HAS_ENHANCED_INPUT
 	UEnhancedInputComponent* InputComp = FoundActor->FindComponentByClass<UEnhancedInputComponent>();
 	Result->SetBoolField(TEXT("hasEnhancedInput"), InputComp != nullptr);
+#else
+	Result->SetBoolField(TEXT("hasEnhancedInput"), false);
+#endif
 
 	return MCPResult(Result);
 }

@@ -1,12 +1,13 @@
 #include "PCGHandlers.h"
 #include "HandlerRegistry.h"
 #include "HandlerUtils.h"
+
+#if __has_include("PCGGraph.h")
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetToolsModule.h"
 #include "IAssetTools.h"
 #include "EditorScriptingUtilities/Public/EditorAssetLibrary.h"
 #include "UObject/UObjectGlobals.h"
-#include "UObject/TopLevelAssetPath.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "Editor.h"
@@ -1281,3 +1282,12 @@ TSharedPtr<FJsonValue> FPCGHandlers::ToggleGraphPCG(const TSharedPtr<FJsonObject
 	Result->SetBoolField(TEXT("toggled"), true);
 	return MCPResult(Result);
 }
+
+#else
+
+void FPCGHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
+{
+	(void)Registry;
+}
+
+#endif

@@ -11,9 +11,14 @@
 #include "Animation/AnimBlueprint.h"
 #include "Animation/BlendSpace.h"
 #include "Animation/AnimComposite.h"
+#if __has_include("PoseSearch/PoseSearchDatabase.h")
 #include "PoseSearch/PoseSearchDatabase.h"
 #include "PoseSearch/PoseSearchSchema.h"
 #include "PoseSearch/PoseSearchDerivedData.h"
+#define UE_MCP_HAS_POSESEARCH 1
+#else
+#define UE_MCP_HAS_POSESEARCH 0
+#endif
 #include "Animation/AnimBlueprintGeneratedClass.h"
 #include "Animation/AnimNotifies/AnimNotify.h"
 #include "PhysicsEngine/PhysicsAsset.h"
@@ -47,8 +52,13 @@
 #include "Kismet2/KismetEditorUtilities.h"
 
 // IK Rig (#93) — use subdirectory path for UE 5.7
+#if __has_include("Rig/IKRigDefinition.h") && __has_include("RigEditor/IKRigController.h")
 #include "Rig/IKRigDefinition.h"
 #include "RigEditor/IKRigController.h"
+#define UE_MCP_HAS_IKRIG 1
+#else
+#define UE_MCP_HAS_IKRIG 0
+#endif
 
 // Control Rig (#11) — ControlRigBlueprint removed in UE 5.7, use reflection
 #include "ControlRig.h"
@@ -156,7 +166,7 @@ TSharedPtr<FJsonValue> FAnimationHandlers::ListAnimAssets(const TSharedPtr<FJson
 			TSharedPtr<FJsonObject> AssetObj = MakeShared<FJsonObject>();
 			AssetObj->SetStringField(TEXT("name"), AssetData.AssetName.ToString());
 			AssetObj->SetStringField(TEXT("path"), AssetData.GetObjectPathString());
-			AssetObj->SetStringField(TEXT("class"), AssetData.AssetClassPath.GetAssetName().ToString());
+			AssetObj->SetStringField(TEXT("class"), MCPGetAssetClassName(AssetData));
 			AssetObj->SetStringField(TEXT("packagePath"), AssetData.PackagePath.ToString());
 			AssetsArray.Add(MakeShared<FJsonValueObject>(AssetObj));
 		}
@@ -2338,6 +2348,7 @@ TSharedPtr<FJsonValue> FAnimationHandlers::AddMontageSection(const TSharedPtr<FJ
 
 TSharedPtr<FJsonValue> FAnimationHandlers::CreateIKRig(const TSharedPtr<FJsonObject>& Params)
 {
+#if UE_MCP_HAS_IKRIG
 	FString Name;
 	if (auto Err = RequireString(Params, TEXT("name"), Name)) return Err;
 
@@ -2447,12 +2458,16 @@ TSharedPtr<FJsonValue> FAnimationHandlers::CreateIKRig(const TSharedPtr<FJsonObj
 	MCPSetDeleteAssetRollback(Result, IKRig->GetPathName());
 
 	return MCPResult(Result);
+#else
+	return MCPError(TEXT("IKRig is not available in UE 4.27."));
+#endif
 }
 
 // ─── #93  read_ik_rig ───────────────────────────────────────────────
 
 TSharedPtr<FJsonValue> FAnimationHandlers::ReadIKRig(const TSharedPtr<FJsonObject>& Params)
 {
+#if UE_MCP_HAS_IKRIG
 	FString AssetPath;
 	if (auto Err = RequireStringAlt(Params, TEXT("assetPath"), TEXT("path"), AssetPath)) return Err;
 
@@ -2522,6 +2537,9 @@ TSharedPtr<FJsonValue> FAnimationHandlers::ReadIKRig(const TSharedPtr<FJsonObjec
 	Result->SetArrayField(TEXT("solvers"), SolversArray);
 
 	return MCPResult(Result);
+#else
+	return MCPError(TEXT("IKRig is not available in UE 4.27."));
+#endif
 }
 
 // ─── #11  list_control_rig_variables ────────────────────────────────
@@ -3174,6 +3192,7 @@ TSharedPtr<FJsonValue> FAnimationHandlers::BakeRootMotionFromBone(const TSharedP
 
 TSharedPtr<FJsonValue> FAnimationHandlers::CreatePoseSearchDatabase(const TSharedPtr<FJsonObject>& Params)
 {
+#if UE_MCP_HAS_POSESEARCH
 	FString Name;
 	if (auto Err = RequireString(Params, TEXT("name"), Name)) return Err;
 	const FString PackagePath = OptionalString(Params, TEXT("packagePath"), TEXT("/Game/MotionMatching"));
@@ -3209,10 +3228,14 @@ TSharedPtr<FJsonValue> FAnimationHandlers::CreatePoseSearchDatabase(const TShare
 	Res->SetStringField(TEXT("schemaPath"), SchemaPath);
 	MCPSetDeleteAssetRollback(Res, Database->GetPathName());
 	return MCPResult(Res);
+#else
+	return MCPError(TEXT("PoseSearch is not available in UE 4.27."));
+#endif
 }
 
 TSharedPtr<FJsonValue> FAnimationHandlers::SetPoseSearchSchema(const TSharedPtr<FJsonObject>& Params)
 {
+#if UE_MCP_HAS_POSESEARCH
 	FString AssetPath;
 	if (auto Err = RequireStringAlt(Params, TEXT("path"), TEXT("assetPath"), AssetPath)) return Err;
 	FString SchemaPath;
@@ -3241,10 +3264,14 @@ TSharedPtr<FJsonValue> FAnimationHandlers::SetPoseSearchSchema(const TSharedPtr<
 	RbPayload->SetStringField(TEXT("schemaPath"), PrevSchemaPath);
 	if (!PrevSchemaPath.IsEmpty()) MCPSetRollback(Res, TEXT("set_pose_search_schema"), RbPayload);
 	return MCPResult(Res);
+#else
+	return MCPError(TEXT("PoseSearch is not available in UE 4.27."));
+#endif
 }
 
 TSharedPtr<FJsonValue> FAnimationHandlers::AddPoseSearchSequence(const TSharedPtr<FJsonObject>& Params)
 {
+#if UE_MCP_HAS_POSESEARCH
 	FString AssetPath;
 	if (auto Err = RequireStringAlt(Params, TEXT("path"), TEXT("assetPath"), AssetPath)) return Err;
 	FString SequencePath;
@@ -3280,10 +3307,14 @@ TSharedPtr<FJsonValue> FAnimationHandlers::AddPoseSearchSequence(const TSharedPt
 	Res->SetNumberField(TEXT("newCount"), NewCount);
 	Res->SetNumberField(TEXT("addedIndex"), NewCount - 1);
 	return MCPResult(Res);
+#else
+	return MCPError(TEXT("PoseSearch is not available in UE 4.27."));
+#endif
 }
 
 TSharedPtr<FJsonValue> FAnimationHandlers::BuildPoseSearchIndex(const TSharedPtr<FJsonObject>& Params)
 {
+#if UE_MCP_HAS_POSESEARCH
 	FString AssetPath;
 	if (auto Err = RequireStringAlt(Params, TEXT("path"), TEXT("assetPath"), AssetPath)) return Err;
 	const bool bWait = OptionalBool(Params, TEXT("wait"), true);
@@ -3318,10 +3349,14 @@ TSharedPtr<FJsonValue> FAnimationHandlers::BuildPoseSearchIndex(const TSharedPtr
 	Res->SetBoolField(TEXT("waitedForCompletion"), bWait);
 	Res->SetNumberField(TEXT("animationAssetCount"), Database->GetNumAnimationAssets());
 	return MCPResult(Res);
+#else
+	return MCPError(TEXT("PoseSearch is not available in UE 4.27."));
+#endif
 }
 
 TSharedPtr<FJsonValue> FAnimationHandlers::ReadPoseSearchDatabase(const TSharedPtr<FJsonObject>& Params)
 {
+#if UE_MCP_HAS_POSESEARCH
 	FString AssetPath;
 	if (auto Err = RequireStringAlt(Params, TEXT("path"), TEXT("assetPath"), AssetPath)) return Err;
 
@@ -3381,4 +3416,7 @@ TSharedPtr<FJsonValue> FAnimationHandlers::ReadPoseSearchDatabase(const TSharedP
 	}
 
 	return MCPResult(Res);
+#else
+	return MCPError(TEXT("PoseSearch is not available in UE 4.27."));
+#endif
 }

@@ -6,7 +6,6 @@
 #include "IAssetTools.h"
 #include "EditorScriptingUtilities/Public/EditorAssetLibrary.h"
 #include "UObject/UObjectGlobals.h"
-#include "UObject/TopLevelAssetPath.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "NiagaraSystem.h"

@@ -9,10 +9,15 @@
 #include "EdGraph/EdGraphPin.h"
 #include "EdGraphSchema_K2.h"
 #include "K2Node.h"
+#if __has_include("SubobjectDataSubsystem.h")
 #include "SubobjectDataSubsystem.h"
 #include "SubobjectDataHandle.h"
 #include "SubobjectData.h"
 #include "SubobjectDataBlueprintFunctionLibrary.h"
+#define UE_MCP_HAS_SUBOBJECT_DATA 1
+#else
+#define UE_MCP_HAS_SUBOBJECT_DATA 0
+#endif
 #include "Editor.h"
 #include "Editor/EditorEngine.h"
 #include "UObject/UObjectGlobals.h"
@@ -21,7 +26,6 @@
 #include "Misc/PackageName.h"
 #include "UObject/SavePackage.h"
 #include "Internationalization/Text.h"
-#include "UObject/TopLevelAssetPath.h"
 #include "AssetToolsModule.h"
 #include "IAssetTools.h"
 #include "Factories/BlueprintFactory.h"
@@ -299,7 +303,11 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::GetBlueprintDependencies(const TShare
 	if (bReverse)
 	{
 		TArray<FName> Referencers;
+		#if ENGINE_MAJOR_VERSION >= 5
 		Registry.GetReferencers(PackageName, Referencers, UE::AssetRegistry::EDependencyCategory::Package);
+		#else
+		Registry.GetReferencers(PackageName, Referencers, EAssetRegistryDependencyType::Packages);
+		#endif
 		TArray<TSharedPtr<FJsonValue>> Arr;
 		Arr.Reserve(Referencers.Num());
 		for (const FName& Ref : Referencers)
@@ -313,7 +321,11 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::GetBlueprintDependencies(const TShare
 
 	// Forward: asset-level deps from registry + class-level walk.
 	TArray<FName> AssetDeps;
+	#if ENGINE_MAJOR_VERSION >= 5
 	Registry.GetDependencies(PackageName, AssetDeps, UE::AssetRegistry::EDependencyCategory::Package);
+	#else
+	Registry.GetDependencies(PackageName, AssetDeps, EAssetRegistryDependencyType::Packages);
+	#endif
 	TArray<TSharedPtr<FJsonValue>> AssetArr;
 	AssetArr.Reserve(AssetDeps.Num());
 	for (const FName& Dep : AssetDeps)
@@ -1064,8 +1076,9 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddComponent(const TSharedPtr<FJsonOb
 	// #115: optional parentComponent — makes this component a child in the SCS hierarchy
 	const FString ParentComponent = OptionalString(Params, TEXT("parentComponent"));
 
-	// Try using SubobjectDataSubsystem (UE5 method)
 	bool bSuccess = false;
+#if UE_MCP_HAS_SUBOBJECT_DATA
+	// Try using SubobjectDataSubsystem (UE5 method)
 	if (USubobjectDataSubsystem* Subsystem = GEngine->GetEngineSubsystem<USubobjectDataSubsystem>())
 	{
 		// Get blueprint handles using K2 function
@@ -1112,6 +1125,40 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddComponent(const TSharedPtr<FJsonOb
 			}
 		}
 	}
+#endif
+
+	if (!bSuccess)
+	{
+		if (USimpleConstructionScript* SCS = Blueprint->SimpleConstructionScript)
+		{
+			USCS_Node* ParentNode = nullptr;
+			if (!ParentComponent.IsEmpty())
+			{
+				for (USCS_Node* Node : SCS->GetAllNodes())
+				{
+					if (Node && (Node->GetVariableName().ToString() == ParentComponent || Node->GetVariableName().ToString().StartsWith(ParentComponent)))
+					{
+						ParentNode = Node;
+						break;
+					}
+				}
+			}
+
+			USCS_Node* NewNode = SCS->CreateNode(CompClass, *ComponentName);
+			if (NewNode)
+			{
+				if (ParentNode)
+				{
+					ParentNode->AddChildNode(NewNode);
+				}
+				else
+				{
+					SCS->AddNode(NewNode);
+				}
+				bSuccess = true;
+			}
+		}
+	}
 
 	if (bSuccess)
 	{
@@ -1142,7 +1189,7 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddComponent(const TSharedPtr<FJsonOb
 	}
 	else
 	{
-		return MCPError(TEXT("Failed to add component via SubobjectDataSubsystem"));
+		return MCPError(TEXT("Failed to add component"));
 	}
 }
 

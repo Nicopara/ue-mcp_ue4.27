@@ -41,8 +41,8 @@ function findUEBuildTool() {
     return envPath;
   }
 
-  // Check default UE5 installation paths
-  const versions = ['5.7', '5.6', '5.5', '5.4', '5.3'];
+  // Check default UE4.27 installation path
+  const versions = ['4.27'];
   const basePath = 'C:/Program Files/Epic Games';
   
   for (const version of versions) {

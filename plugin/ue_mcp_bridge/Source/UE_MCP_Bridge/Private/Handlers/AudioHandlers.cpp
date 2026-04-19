@@ -52,7 +52,8 @@ TSharedPtr<FJsonValue> FAudioHandlers::ListSoundAssets(const TSharedPtr<FJsonObj
 			TSharedPtr<FJsonObject> AssetObj = MakeShared<FJsonObject>();
 			AssetObj->SetStringField(TEXT("name"), AssetData.AssetName.ToString());
 			AssetObj->SetStringField(TEXT("path"), AssetData.GetObjectPathString());
-			AssetObj->SetStringField(TEXT("class"), AssetData.AssetClassPath.GetAssetName().ToString());
+			// UE4 uses AssetClass while UE5 uses AssetClassPath - normalize through helper.
+			AssetObj->SetStringField(TEXT("class"), MCPGetAssetClassName(AssetData));
 			AssetObj->SetStringField(TEXT("packagePath"), AssetData.PackagePath.ToString());
 			AssetsArray.Add(MakeShared<FJsonValueObject>(AssetObj));
 		}

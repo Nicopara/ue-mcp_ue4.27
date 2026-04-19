@@ -13,7 +13,6 @@
 #include "Misc/Paths.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
-#include "UObject/TopLevelAssetPath.h"
 
 // DataTable
 #include "Engine/DataTable.h"
@@ -186,7 +185,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::SearchAssetsFTS(const TSharedPtr<FJsonObj
 
 	for (const FAssetData& Data : AllAssets)
 	{
-		const FString ClassStr = Data.AssetClassPath.GetAssetName().ToString();
+		const FString ClassStr = MCPGetAssetClassName(Data);
 		if (!ClassFilter.IsEmpty() && !ClassStr.Contains(ClassFilter)) continue;
 
 		const FString NameStr = Data.AssetName.ToString();
@@ -212,7 +211,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::SearchAssetsFTS(const TSharedPtr<FJsonObj
 		TSharedPtr<FJsonObject> R = MakeShared<FJsonObject>();
 		R->SetStringField(TEXT("path"), D.PackageName.ToString());
 		R->SetStringField(TEXT("name"), D.AssetName.ToString());
-		R->SetStringField(TEXT("class"), D.AssetClassPath.GetAssetName().ToString());
+		R->SetStringField(TEXT("class"), MCPGetAssetClassName(D));
 		R->SetNumberField(TEXT("score"), Hits[i].Score);
 		Arr.Add(MakeShared<FJsonValueObject>(R));
 	}
@@ -265,7 +264,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::ListAssets(const TSharedPtr<FJsonObject>&
 		{
 			TSharedPtr<FJsonObject> AssetObj = MakeShared<FJsonObject>();
 			AssetObj->SetStringField(TEXT("path"), AssetPath);
-			AssetObj->SetStringField(TEXT("className"), AssetData.AssetClassPath.GetAssetName().ToString());
+			AssetObj->SetStringField(TEXT("className"), MCPGetAssetClassName(AssetData));
 			AssetObj->SetStringField(TEXT("name"), AssetData.AssetName.ToString());
 			AssetsArray.Add(MakeShared<FJsonValueObject>(AssetObj));
 		}
@@ -333,7 +332,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::SearchAssets(const TSharedPtr<FJsonObject
 			TSharedPtr<FJsonObject> Item = MakeShared<FJsonObject>();
 			Item->SetStringField(TEXT("path"), AssetData.PackageName.ToString());
 			Item->SetStringField(TEXT("name"), AssetName);
-			Item->SetStringField(TEXT("className"), AssetData.AssetClassPath.GetAssetName().ToString());
+			Item->SetStringField(TEXT("className"), MCPGetAssetClassName(AssetData));
 			ResultsArray.Add(MakeShared<FJsonValueObject>(Item));
 		}
 
@@ -377,7 +376,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::SearchAssets(const TSharedPtr<FJsonObject
 		FAssetData AssetData = UEditorAssetLibrary::FindAssetData(AssetPath);
 		if (AssetData.IsValid())
 		{
-			Item->SetStringField(TEXT("className"), AssetData.AssetClassPath.GetAssetName().ToString());
+			Item->SetStringField(TEXT("className"), MCPGetAssetClassName(AssetData));
 		}
 		ResultsArray.Add(MakeShared<FJsonValueObject>(Item));
 	}
@@ -2721,7 +2720,11 @@ TSharedPtr<FJsonValue> FAssetHandlers::GetReferencers(const TSharedPtr<FJsonObje
 	for (const FString& Pkg : Packages)
 	{
 		TArray<FName> Refs;
+		#if ENGINE_MAJOR_VERSION >= 5
 		AR.GetReferencers(FName(*Pkg), Refs, UE::AssetRegistry::EDependencyCategory::Package);
+		#else
+		AR.GetReferencers(FName(*Pkg), Refs, EAssetRegistryDependencyType::Packages);
+		#endif
 		TArray<TSharedPtr<FJsonValue>> Out;
 		for (const FName& R : Refs) Out.Add(MakeShared<FJsonValueString>(R.ToString()));
 		ByPkg->SetArrayField(Pkg, Out);
