@@ -10,7 +10,7 @@ function findUEBuildTool(): string | null {
   const envPath = process.env.UE_BUILD_TOOL_PATH;
   if (envPath) return envPath;
 
-  const versions = ["5.7", "5.6", "5.5", "5.4", "5.3"];
+  const versions = ["4.27"];
   const basePath = "C:/Program Files/Epic Games";
 
   for (const version of versions) {
@@ -31,10 +31,15 @@ function findEditorExecutable(): string | null {
   if (!buildTool) return null;
 
   const engineRoot = path.resolve(buildTool, "..", "..", "..", "..");
-  const editorExe = path.join(engineRoot, "Engine", "Binaries", "Win64", "UnrealEditor.exe");
+  const editorCandidates = [
+    path.join(engineRoot, "Engine", "Binaries", "Win64", "UE4Editor.exe"),
+    path.join(engineRoot, "Engine", "Binaries", "Win64", "UnrealEditor.exe"),
+  ];
 
-  if (fs.existsSync(editorExe)) {
-    return editorExe;
+  for (const editorExe of editorCandidates) {
+    if (fs.existsSync(editorExe)) {
+      return editorExe;
+    }
   }
 
   return null;
@@ -42,13 +47,17 @@ function findEditorExecutable(): string | null {
 
 function isEditorRunning(): boolean {
   try {
-    // Use /NH (no header) and check output directly — avoids pipe/find issues
-    const output = execSync('tasklist /NH /FI "IMAGENAME eq UnrealEditor.exe"', {
-      stdio: "pipe",
-      encoding: "utf-8",
-    });
-    // tasklist returns "INFO: No tasks..." when not found, or the process line when found
-    return output.toLowerCase().includes("unrealeditor.exe");
+    const processes = ["UE4Editor.exe", "UnrealEditor.exe"];
+    for (const processName of processes) {
+      const output = execSync(`tasklist /NH /FI "IMAGENAME eq ${processName}"`, {
+        stdio: "pipe",
+        encoding: "utf-8",
+      });
+      if (output.toLowerCase().includes(processName.toLowerCase())) {
+        return true;
+      }
+    }
+    return false;
   } catch {
     return false;
   }
@@ -111,7 +120,7 @@ export async function startEditor(project: ProjectContext): Promise<{ success: b
   if (!editorExe) {
     return {
       success: false,
-      message: "Unreal Editor executable not found. Set UE_EDITOR_PATH environment variable or install UE5.3+ to default location.",
+      message: "Unreal Editor executable not found. Set UE_EDITOR_PATH environment variable or install UE4.27 to default location.",
     };
   }
 
@@ -155,13 +164,15 @@ export async function stopEditor(force = false): Promise<{ success: boolean; mes
 
   try {
     if (force) {
-      execSync('taskkill /F /IM UnrealEditor.exe', { stdio: "pipe" });
+      try { execSync('taskkill /F /IM UE4Editor.exe', { stdio: "pipe" }); } catch {}
+      try { execSync('taskkill /F /IM UnrealEditor.exe', { stdio: "pipe" }); } catch {}
       editorProcess = null;
       return { success: true, message: "Editor force-killed" };
     }
 
     // Graceful close - sends WM_CLOSE, allows save dialogs
-    execSync('taskkill /IM UnrealEditor.exe', { stdio: "pipe" });
+    try { execSync('taskkill /IM UE4Editor.exe', { stdio: "pipe" }); } catch {}
+    try { execSync('taskkill /IM UnrealEditor.exe', { stdio: "pipe" }); } catch {}
 
     // Wait up to 10 seconds for editor to close gracefully
     for (let i = 0; i < 10; i++) {
@@ -173,7 +184,8 @@ export async function stopEditor(force = false): Promise<{ success: boolean; mes
     }
 
     // Graceful close failed — force kill
-    execSync('taskkill /F /IM UnrealEditor.exe', { stdio: "pipe" });
+    try { execSync('taskkill /F /IM UE4Editor.exe', { stdio: "pipe" }); } catch {}
+    try { execSync('taskkill /F /IM UnrealEditor.exe', { stdio: "pipe" }); } catch {}
     await new Promise((resolve) => setTimeout(resolve, 2000));
     editorProcess = null;
 

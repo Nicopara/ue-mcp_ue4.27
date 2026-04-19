@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) 18+
-- Unreal Engine 5.4–5.7
+- Unreal Engine 4.27
 - An MCP-capable AI client (Claude Code, Claude Desktop, Cursor, etc.)
 
 ## 1. Run Setup

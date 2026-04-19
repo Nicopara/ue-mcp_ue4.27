@@ -25,12 +25,17 @@ function findEditorExecutable() {
 
   // Extract engine root from build tool path
   // Build.bat is at Engine/Build/BatchFiles/Build.bat
-  // Go up 4 levels to get to UE_X.X root, then Engine/Binaries/Win64/UnrealEditor.exe
+  // Go up 4 levels to get to UE_X.X root, then Engine/Binaries/Win64 editor executable
   const engineRoot = path.resolve(buildTool, '..', '..', '..', '..');
-  const editorExe = path.join(engineRoot, 'Engine', 'Binaries', 'Win64', 'UnrealEditor.exe');
-  
-  if (fs.existsSync(editorExe)) {
-    return editorExe;
+  const editorCandidates = [
+    path.join(engineRoot, 'Engine', 'Binaries', 'Win64', 'UE4Editor.exe'),
+    path.join(engineRoot, 'Engine', 'Binaries', 'Win64', 'UnrealEditor.exe'),
+  ];
+
+  for (const editorExe of editorCandidates) {
+    if (fs.existsSync(editorExe)) {
+      return editorExe;
+    }
   }
 
   return null;
@@ -46,10 +51,10 @@ async function main() {
     log('ERROR: Unreal Editor executable not found!', 'red');
     log('');
     log('Please either:');
-    log('  1. Install UE5.3+ to default location, OR');
-    log('  2. Set UE_EDITOR_PATH environment variable to your UnrealEditor.exe path');
+    log('  1. Install UE4.27 to default location, OR');
+    log('  2. Set UE_EDITOR_PATH environment variable to your UE4Editor.exe path');
     log('');
-    log('Example: set UE_EDITOR_PATH=C:\\Program Files\\Epic Games\\UE_5.7\\Engine\\Binaries\\Win64\\UnrealEditor.exe');
+    log('Example: set UE_EDITOR_PATH=C:\\Program Files\\Epic Games\\UE_4.27\\Engine\\Binaries\\Win64\\UE4Editor.exe');
     process.exit(1);
   }
 

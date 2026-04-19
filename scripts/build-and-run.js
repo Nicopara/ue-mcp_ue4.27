@@ -12,16 +12,27 @@ const __dirname = dirname(__filename);
 function killEditor() {
   try {
     // Check if editor is running
-    execSync('tasklist /FI "IMAGENAME eq UnrealEditor.exe" | find /I "UnrealEditor.exe"', { stdio: 'pipe' });
+    execSync('tasklist /FI "IMAGENAME eq UE4Editor.exe" | find /I "UE4Editor.exe"', { stdio: 'pipe' });
   } catch (e) {
+    try {
+      execSync('tasklist /FI "IMAGENAME eq UnrealEditor.exe" | find /I "UnrealEditor.exe"', { stdio: 'pipe' });
+    } catch {
     // Editor not running, that's fine
     return true;
+    }
   }
 
   // Editor is running - try graceful close first (allows save dialog)
   log('Requesting Unreal Editor to close (save your work if prompted)...', 'yellow');
   try {
     // Graceful close - sends WM_CLOSE, allows save dialogs
+    execSync('taskkill /IM UE4Editor.exe', { stdio: 'pipe' });
+  } catch (e) {
+    try {
+      execSync('taskkill /IM UnrealEditor.exe', { stdio: 'pipe' });
+    } catch {}
+  }
+  try {
     execSync('taskkill /IM UnrealEditor.exe', { stdio: 'pipe' });
   } catch (e) {
     // Graceful kill failed, user may have cancelled
@@ -31,7 +42,7 @@ function killEditor() {
   for (let i = 0; i < 30; i++) {
     try {
       execSync('timeout /t 1 /nobreak >nul 2>&1', { stdio: 'pipe' });
-      execSync('tasklist /FI "IMAGENAME eq UnrealEditor.exe" | find /I "UnrealEditor.exe"', { stdio: 'pipe' });
+      execSync('(tasklist /FI "IMAGENAME eq UE4Editor.exe" | find /I "UE4Editor.exe") || (tasklist /FI "IMAGENAME eq UnrealEditor.exe" | find /I "UnrealEditor.exe")', { stdio: 'pipe' });
       // Still running, keep waiting
     } catch (e) {
       // Editor closed

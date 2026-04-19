@@ -4,6 +4,57 @@
 #include "Dom/JsonValue.h"
 #include "Dom/JsonObject.h"
 #include "UObject/UObjectIterator.h"
+#include "AssetRegistry/AssetData.h"
+
+#if ENGINE_MAJOR_VERSION >= 5
+#include "UObject/TopLevelAssetPath.h"
+#endif
+
+#if ENGINE_MAJOR_VERSION < 5
+template <typename T>
+using TObjectPtr = T*;
+
+struct FTopLevelAssetPath
+{
+	FName AssetName;
+
+	FTopLevelAssetPath() = default;
+	FTopLevelAssetPath(const TCHAR* /*ScriptPath*/, const TCHAR* InAssetName)
+		: AssetName(InAssetName)
+	{
+	}
+	explicit FTopLevelAssetPath(const FString& InPath)
+	{
+		FString Right;
+		if (InPath.Split(TEXT("."), nullptr, &Right, ESearchCase::CaseSensitive, ESearchDir::FromEnd))
+		{
+			AssetName = FName(*Right);
+		}
+		else if (InPath.Split(TEXT("/"), nullptr, &Right, ESearchCase::CaseSensitive, ESearchDir::FromEnd))
+		{
+			AssetName = FName(*Right);
+		}
+		else
+		{
+			AssetName = FName(*InPath);
+		}
+	}
+
+	operator FName() const
+	{
+		return AssetName;
+	}
+};
+#endif
+
+inline FString MCPGetAssetClassName(const FAssetData& AssetData)
+{
+#if ENGINE_MAJOR_VERSION >= 5
+	return AssetData.AssetClassPath.GetAssetName().ToString();
+#else
+	return AssetData.AssetClass.ToString();
+#endif
+}
 
 // ── Quick result builders ────────────────────────────────────────────────────
 
