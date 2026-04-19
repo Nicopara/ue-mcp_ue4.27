@@ -47,6 +47,8 @@ struct FTopLevelAssetPath
 };
 #endif
 
+// UE5 moved asset class metadata from FAssetData::AssetClass to AssetClassPath.
+// Keep handler code version-agnostic by normalizing to a plain class-name string.
 inline FString MCPGetAssetClassName(const FAssetData& AssetData)
 {
 #if ENGINE_MAJOR_VERSION >= 5
